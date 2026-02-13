@@ -72,7 +72,7 @@ export default function ChildrenEditor({ personId, hasAccount, apiBase }: { pers
                               value={childId}
                               onChange={(pid)=>setChildId(pid)} />
         </Box>
-        <Select value={relation} onChange={(e)=>setRelation(e.target.value as string)} sx={{ minWidth: 240 }}>
+        <Select value={relation} onChange={(e)=>setRelation(e.target.value as typeof RELS[number])} sx={{ minWidth: 240 }}>
           {RELS.map(r => <MenuItem key={r} value={r}>{r.replaceAll('_',' ')}</MenuItem>)}
         </Select>
         <Button variant="contained" onClick={save} disabled={!relation}>Save</Button>

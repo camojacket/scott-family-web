@@ -12,10 +12,6 @@ const nextConfig: NextConfig = {
     '@mui/base',
     '@mui/utils',
   ],
-  // harmless on newer Next; helps older Next with mixed ESM/CJS in node_modules
-  experimental: {
-    esmExternals: 'loose',
-  },
   images: {
     remotePatterns: [
       {
