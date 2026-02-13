@@ -44,46 +44,41 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springframework.boot:spring-boot-starter-web'
+	implementation 'org.springframework.boot:spring-boot-starter-jooq'
+	implementation 'io.r2dbc:r2dbc-spi:0.9.1.RELEASE'
+
 	implementation 'com.azure.spring:spring-cloud-azure-starter'
 	implementation 'com.azure.spring:spring-cloud-azure-starter-actuator'
 	implementation 'com.azure.spring:spring-cloud-azure-starter-keyvault'
 	implementation 'com.azure.spring:spring-cloud-azure-starter-storage'
 	implementation 'org.thymeleaf.extras:thymeleaf-extras-springsecurity6'
-	implementation 'org.jooq:jooq:3.21.0-SNAPSHOT'
-	implementation("org.springframework.boot:spring-boot-starter-jooq")
-	jooqGenerator("com.microsoft.sqlserver:mssql-jdbc:12.6.1.jre11")
+
 	compileOnly 'org.projectlombok:lombok'
+	annotationProcessor 'org.projectlombok:lombok'
 	developmentOnly 'org.springframework.boot:spring-boot-devtools'
+
 	runtimeOnly 'com.h2database:h2'
 	runtimeOnly 'com.microsoft.sqlserver:mssql-jdbc'
-	annotationProcessor 'org.projectlombok:lombok'
+
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 	testImplementation 'org.springframework.security:spring-security-test'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 
-	// 🧱 jOOQ SNAPSHOT JARs — loaded via flatDir or local repo
+	// --- jOOQ Codegen ---
 	jooqGenerator name: 'jooq-3.21.0-SNAPSHOT'
 	jooqGenerator name: 'jooq-codegen-3.21.0-SNAPSHOT'
 	jooqGenerator name: 'jooq-meta-3.21.0-SNAPSHOT'
-//	jooqGenerator name: 'jooq-meta-extensions-sqlserver-3.21.0-SNAPSHOT'
+	// jooqGenerator name: 'jooq-meta-extensions-sqlserver-3.21.0-SNAPSHOT' // optional
 
-	// 🔌 JDBC driver
-	jooqGenerator 'com.microsoft.sqlserver:mssql-jdbc:12.4.2.jre11'
-
-	// 🧩 JAXB for XML config
+	jooqGenerator 'com.microsoft.sqlserver:mssql-jdbc:12.6.1.jre11'
 	jooqGenerator 'jakarta.xml.bind:jakarta.xml.bind-api:3.0.1'
 	jooqGenerator 'org.glassfish.jaxb:jaxb-runtime:3.0.1'
-
-	// 🔁 Reactive Streams (used in core API as of 3.21)
 	jooqGenerator 'org.reactivestreams:reactive-streams:1.0.4'
-
-	// 💥 R2DBC SPI — required internally by 3.21
 	jooqGenerator 'io.r2dbc:r2dbc-spi:0.9.1.RELEASE'
-
-	// 🔊 Optional: Logging, in case errors or warnings are swallowed
 	jooqGenerator 'org.slf4j:slf4j-api:2.0.9'
 	jooqGenerator 'org.slf4j:slf4j-simple:2.0.9'
 }
+
 
 dependencyManagement {
 	imports {
@@ -95,6 +90,23 @@ tasks.named('test') {
 	useJUnitPlatform()
 }
 
+tasks.named('compileJava') {
+	dependsOn tasks.named('generateJooq')
+}
+
+
+// Load .env file for jOOQ codegen credentials
+def jooqEnv = [:]
+def jooqEnvFile = file('.env')
+if (jooqEnvFile.exists()) {
+	jooqEnvFile.readLines().each { line ->
+		line = line.trim()
+		if (line && !line.startsWith('#') && line.contains('=')) {
+			def (key, value) = line.split('=', 2)
+			jooqEnv[key.trim()] = value.trim()
+		}
+	}
+}
 
 jooq {
 	version = '3.21.0-SNAPSHOT'
@@ -107,16 +119,10 @@ jooq {
 			generationTool {    // <-- **Use generationTool**, not jooqConfiguration
 				jdbc {
 					driver = 'com.microsoft.sqlserver.jdbc.SQLServerDriver'
-					url = "jdbc:sqlserver://scott-family-web.database.windows.net:1433;" +
-							"database=Scott-Family-Web;" +
-//							"user=CloudSA9b37ab28@scott-family-web;" +
-//							"password=sarahscotttheprogenitor;" +
-							"encrypt=true;" +
-							"trustServerCertificate=false;" +
-							"hostNameInCertificate=*.database.windows.net;" +
-							"loginTimeout=30;"
-					user = "CloudSA9b37ab28@scott-family-web"
-					password = 'SarahScottTheProgenitor1'
+					url = jooqEnv.getOrDefault('SPRING_DATASOURCE_URL',
+							"jdbc:sqlserver://localhost:1433;database=Scott-Family-Web;encrypt=true;trustServerCertificate=false;loginTimeout=30;")
+					user = jooqEnv.getOrDefault('SPRING_DATASOURCE_USERNAME', '')
+					password = jooqEnv.getOrDefault('SPRING_DATASOURCE_PASSWORD', '')
 				}
 				generator {
 					name = 'org.jooq.codegen.DefaultGenerator'
@@ -140,4 +146,22 @@ jooq {
 
 sourceSets.main {
 	java.srcDir("build/generated-jooq")
+}
+
+bootRun {
+	// Load environment variables from .env file for local development
+	def envFile = file('.env')
+	if (envFile.exists()) {
+		envFile.readLines().each { line ->
+			line = line.trim()
+			if (line && !line.startsWith('#') && line.contains('=')) {
+				def (key, value) = line.split('=', 2)
+				environment key.trim(), value.trim()
+			}
+		}
+	}
+
+	jvmArgs = [
+	        "-Djava.io.tmpdir=c:/users/public"
+	]
 }

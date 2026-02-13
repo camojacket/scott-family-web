@@ -1,36 +1,180 @@
 'use client';
 
-import Image from 'next/image';
-import { Container, Typography, Box, Paper } from '@mui/material';
+import Link from 'next/link';
+import { Typography, Box, Button, Stack } from '@mui/material';
+import EditIcon from '@mui/icons-material/Edit';
+import CelebrationIcon from '@mui/icons-material/Celebration';
+import HistoryIcon from '@mui/icons-material/History';
+import PhotoLibraryIcon from '@mui/icons-material/PhotoLibrary';
+import AccountTreeIcon from '@mui/icons-material/AccountTree';
+import { useEffect, useState } from 'react';
+import { useFamilyName } from './lib/FamilyNameContext';
+import HeroSlideshow from './components/HeroSlideshow';
 
 export default function Home() {
+  const { family, full } = useFamilyName();
+
+  const HIGHLIGHTS = [
+    {
+      icon: <CelebrationIcon sx={{ fontSize: 32, color: 'var(--color-primary-500)' }} />,
+      title: 'Annual Reunion',
+      description: 'Every third Sunday of July we gather to celebrate our heritage and strengthen family bonds.',
+      href: '/reunion',
+    },
+    {
+      icon: <HistoryIcon sx={{ fontSize: 32, color: 'var(--color-primary-500)' }} />,
+      title: 'Our History',
+      description: 'Discover the legacy of Sarah Scott, Marcus A. Scott, and the generations that followed.',
+      href: '/history',
+    },
+    {
+      icon: <PhotoLibraryIcon sx={{ fontSize: 32, color: 'var(--color-primary-500)' }} />,
+      title: 'Family Photos',
+      description: 'Browse and share photos from family gatherings, events, and everyday moments.',
+      href: '/memorial/family-photos',
+    },
+    {
+      icon: <AccountTreeIcon sx={{ fontSize: 32, color: 'var(--color-primary-500)' }} />,
+      title: 'Family Tree',
+      description: `Explore the branches of the ${full} family tree and find your connection.`,
+      href: '/family-tree',
+    },
+  ];
+
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+
+  useEffect(() => {
+    try {
+      const p = JSON.parse(localStorage.getItem('profile') || '{}');
+      const role: string = p?.userRole || '';
+      setIsAdmin(role === 'ROLE_ADMIN' || role === 'ADMIN');
+    } catch { /* ignore */ }
+  }, []);
+
   return (
-    <Container maxWidth="md" sx={{ minHeight: '100vh', py: 8, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-      <Paper elevation={3} sx={{ p: 6, textAlign: 'center' }}>
-        <Typography variant="h3" gutterBottom>
-          Welcome Scott-Phillips Family!
-        </Typography>
+    <Box>
+      {/* ── Full-width slideshow (breaks out of main container) ── */}
+      <Box
+        sx={{
+          width: '100vw',
+          position: 'relative',
+          left: '50%',
+          right: '50%',
+          mx: '-50vw',
+        }}
+      >
+        {/* Admin edit mode toggle */}
+        {isAdmin && (
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', px: 2, py: 0.5, bgcolor: 'var(--color-gray-50)', borderBottom: '1px solid var(--border)' }}>
+            <Button
+              size="small"
+              variant={editMode ? 'contained' : 'outlined'}
+              startIcon={<EditIcon />}
+              onClick={() => setEditMode(!editMode)}
+              sx={editMode ? {
+                bgcolor: 'var(--color-primary-500)',
+                '&:hover': { bgcolor: 'var(--color-primary-600)' },
+              } : {
+                borderColor: 'var(--color-primary-500)',
+                color: 'var(--color-primary-500)',
+                '&:hover': { borderColor: 'var(--color-primary-600)', bgcolor: 'var(--color-primary-50)' },
+              }}
+            >
+              {editMode ? 'Done Editing' : 'Edit Slideshow'}
+            </Button>
+          </Box>
+        )}
 
-        <Typography variant="h5" color="text.secondary" gutterBottom>
-          2023 Scott-Phillips Family Reunion Information is Available Here!
-        </Typography>
+        <HeroSlideshow
+          isAdmin={isAdmin}
+          editMode={editMode}
+          family={family}
+          full={full}
+        />
+      </Box>
 
-        <Typography variant="body1" paragraph>
-          We are the descendants of the slave, Sarah Scott. We are the descendants of her son, Marcus A. Scott and Caroline Wright Scott.
-          We are family. Let us continue to gather together and strengthen our family ties as our ancestors have done for many years before us.
-        </Typography>
+      {/* CTA buttons */}
+      <Stack direction="row" spacing={2} justifyContent="center" sx={{ mt: 4 }}>
+        <Link href="/reunion">
+          <Button
+            variant="contained"
+            size="large"
+            sx={{
+              bgcolor: 'var(--color-primary-500)',
+              '&:hover': { bgcolor: 'var(--color-primary-600)' },
+              px: 4,
+              py: 1.25,
+            }}
+          >
+            Reunion Info
+          </Button>
+        </Link>
+        <Link href="/history">
+          <Button
+            variant="outlined"
+            size="large"
+            sx={{
+              borderColor: 'var(--color-primary-500)',
+              color: 'var(--color-primary-500)',
+              '&:hover': { borderColor: 'var(--color-primary-600)', bgcolor: 'var(--color-primary-50)' },
+              px: 4,
+              py: 1.25,
+            }}
+          >
+            Our Story
+          </Button>
+        </Link>
+      </Stack>
 
-        <Box sx={{ my: 4, display: 'flex', justifyContent: 'center' }}>
-          <Image
-            src="/images/sarahscott1 (1).jpg"
-            alt="Sarah Scott"
-            width={400}
-            height={300}
-            style={{ borderRadius: '12px', objectFit: 'cover' }}
-            priority
-          />
-        </Box>
-      </Paper>
-    </Container>
+      {/* Feature cards grid */}
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
+          gap: 2.5,
+          mt: 4,
+          mb: 2,
+        }}
+      >
+        {HIGHLIGHTS.map((item) => (
+          <Link key={item.href} href={item.href} style={{ textDecoration: 'none' }}>
+            <Box
+              className="card card-interactive"
+              sx={{
+                p: 3,
+                display: 'flex',
+                gap: 2,
+                alignItems: 'flex-start',
+                cursor: 'pointer',
+                height: '100%',
+              }}
+            >
+              <Box
+                sx={{
+                  bgcolor: 'var(--color-primary-50)',
+                  borderRadius: 'var(--radius-md)',
+                  p: 1.25,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                {item.icon}
+              </Box>
+              <Box>
+                <Typography variant="subtitle1" sx={{ fontWeight: 700, color: 'var(--foreground)', mb: 0.5 }}>
+                  {item.title}
+                </Typography>
+                <Typography variant="body2" sx={{ color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                  {item.description}
+                </Typography>
+              </Box>
+            </Box>
+          </Link>
+        ))}
+      </Box>
+    </Box>
   );
 }

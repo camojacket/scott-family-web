@@ -1,49 +1,50 @@
+'use client';
+
+import { Typography } from '@mui/material';
+import { AncestryLayout, SectionTitle, FamilyTable } from '../components';
+
 export default function Page() {
-    return (
-        <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-            <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-                <div id="main">
-                    <div id="primary">
-                        <div id="content" role="main">
-                            <article id="post-81" className="post-81 page type-page status-publish hentry">
-                                <header className="entry-header">
-                                    <h1 className="entry-title">Jim Scott</h1>
-                                </header>
+  return (
+    <AncestryLayout name="Jim Scott">
+      <Typography sx={{ color: 'var(--text-secondary)', lineHeight: 1.8, mb: 3 }}>
+        Limited records are available for Jim Scott. If you have information about Jim Scott or his
+        descendants, please e-mail{' '}
+        <a href="mailto:scott_phillips_family@yahoo.com" style={{ color: 'var(--color-primary-500)' }}>
+          scott_phillips_family@yahoo.com
+        </a>.
+      </Typography>
 
-                                <div className="entry-content">
-                                    <h2>JIM SCOTT TREE</h2>
-                                    <table className="border-collapse border border-gray-300">
-                                        <tbody>
-                                            <tr>
-                                                <td>
-                                                    <strong>Jim Scott</strong>
-                                                    <br />
-                                                    Born: Unknown
-                                                    <br />
-                                                    Died: Unknown
-                                                </td>
-                                                <td>Married</td>
-                                                <td>Unknown</td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
+      <SectionTitle>Jim Scott Tree</SectionTitle>
+      <FamilyTable>
+        <table>
+          <thead><tr><th>Person</th><th>Spouse</th><th>Children</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>
+                <strong>Jim Scott</strong><br />
+                Born: Unknown<br />
+                Died: Unknown
+              </td>
+              <td>Unknown</td>
+              <td>Unknown</td>
+            </tr>
+          </tbody>
+        </table>
+      </FamilyTable>
 
-                                    <h4>JIM SCOTT CHILDREN</h4>
-                                    <table className="border-collapse border border-gray-300">
-                                        <tbody>
-                                            <tr>
-                                                <td>Unknown</td>
-                                                <td>Unknown</td>
-                                                <td>Unknown</td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </article>
-                        </div>
-                    </div>
-                </div>
-            </main>
-        </div>
-    );
+      <SectionTitle>Children</SectionTitle>
+      <FamilyTable>
+        <table>
+          <thead><tr><th>Child</th><th>Spouse</th><th>Children</th></tr></thead>
+          <tbody>
+            <tr>
+              <td colSpan={3} style={{ textAlign: 'center', fontStyle: 'italic' }}>
+                No records available
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </FamilyTable>
+    </AncestryLayout>
+  );
 }

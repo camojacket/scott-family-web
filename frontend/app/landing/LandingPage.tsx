@@ -9,17 +9,27 @@ import {
   Stack,
   Link,
   InputLabel,
+  MenuItem,
 } from "@mui/material";
+import { useFamilyName } from '../lib/FamilyNameContext';
+
+const PREFIX_OPTIONS = ['', 'Mr.', 'Mrs.', 'Ms.', 'Dr.', 'Rev.'];
+const SUFFIX_OPTIONS = ['', 'Jr.', 'Sr.', 'II', 'III', 'IV', 'Esq.'];
 
 type FormMode = "login" | "signup";
 
 const LandingPage: React.FC = () => {
+  const { family } = useFamilyName();
   const [mode, setMode] = useState<FormMode | null>(null);
   const [form, setForm] = useState({
     username: "",
     password: "",
     email: "",
-    displayName: "",
+    firstName: "",
+    lastName: "",
+    middleName: "",
+    prefix: "",
+    suffix: "",
     bio: "",
     profilePicture: undefined as File | undefined,
     bannerImage: undefined as File | undefined,
@@ -149,7 +159,21 @@ const LandingPage: React.FC = () => {
           onChange={handleInputChange}
         />
 
-        <TextField name="displayName" label="Display Name" fullWidth required onChange={handleInputChange} />
+        <Stack direction="row" spacing={1.5}>
+          <TextField name="prefix" label="Prefix" select value={form.prefix} onChange={handleInputChange} sx={{ minWidth: 90 }} size="small">
+            {PREFIX_OPTIONS.map(p => <MenuItem key={p} value={p}>{p || '—'}</MenuItem>)}
+          </TextField>
+          <TextField name="firstName" label="First Name" fullWidth required onChange={handleInputChange} />
+        </Stack>
+
+        <Stack direction="row" spacing={1.5}>
+          <TextField name="middleName" label="Middle Name" fullWidth onChange={handleInputChange} />
+          <TextField name="lastName" label="Last Name" fullWidth required onChange={handleInputChange} />
+          <TextField name="suffix" label="Suffix" select value={form.suffix} onChange={handleInputChange} sx={{ minWidth: 90 }} size="small">
+            {SUFFIX_OPTIONS.map(s => <MenuItem key={s} value={s}>{s || '—'}</MenuItem>)}
+          </TextField>
+        </Stack>
+
         <TextField name="bio" label="Bio" multiline rows={3} fullWidth onChange={handleInputChange} />
 
         <Box>
@@ -175,7 +199,7 @@ const LandingPage: React.FC = () => {
     <Container maxWidth="sm" sx={{ py: 6 }}>
       <Paper elevation={4} sx={{ p: 4, textAlign: "center", borderRadius: 3 }}>
         <Typography variant="h3" gutterBottom fontWeight="bold">
-          SCOTT'S FAMILY
+          {family.toUpperCase()}
         </Typography>
 
         {mode === null && renderInitialButtons()}

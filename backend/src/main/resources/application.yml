@@ -1,0 +1,41 @@
+server:
+  servlet:
+    session:
+      timeout: ${SESSION_TIMEOUT:20m}   # configurable via env; default 20 minutes of inactivity
+
+spring:
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 5MB
+  datasource:
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+  jooq:
+    sql-dialect: SQLSERVER2016   # or a suitable version
+
+# src/main/resources/application.yml (add under spring:)
+uploads:
+  dir: uploads   # local folder for profile images (maps to /uploads); change to your mount path later
+app:
+  cors:
+    origin: ${APP_CORS_ORIGIN:http://localhost:3000}
+
+azure:
+  storage:
+    connection-string: ${AZURE_STORAGE_CONNECTION_STRING}
+    container-name: ${AZURE_STORAGE_CONTAINER_NAME}
+cdn:
+  base-url: ${CDN_BASE_URL:}
+  container-name: ${CDN_CONTAINER_NAME}
+  cache-control: public, max-age=86400
+
+
+# Notes:
+  # - Protect your origin (Blob) so only the CDN can read from it.
+  # - The CDN URL is constructed as {cdn.base-url}/{key}.
+  # - For immutable static assets, prefer hashed filenames and immutable cache headers.
+  # - For user images that change, write new files (new keys) rather than overwriting, then update DB to the new URL.
+app-config:
+  base-url:

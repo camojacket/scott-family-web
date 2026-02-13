@@ -1,159 +1,121 @@
+'use client';
+
+import { Box, Typography, Stack } from '@mui/material';
+import { AncestryLayout, SectionTitle, FamilyTable } from '../components';
+
 export default function Page() {
-    return (
-        <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-            <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-                <div id="main">
-                    <div id="primary">
-                        <div id="content" role="main">
-                            <article id="post-66" className="post-66 page type-page status-publish hentry">
-                                <header className="entry-header">
-                                    <h1 className="entry-title">Marcus A. Scott</h1>
-                                </header>
+  return (
+    <AncestryLayout name="Marcus A. Scott">
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3} sx={{ mb: 4 }}>
+        <Box sx={{
+          width: { xs: '100%', sm: 220 }, height: 215, borderRadius: 'var(--radius-lg)',
+          overflow: 'hidden', flexShrink: 0,
+          backgroundImage: 'url(https://scottphillipsfamily.wordpress.com/wp-content/uploads/2012/10/marcus.jpg)',
+          backgroundSize: 'cover', backgroundPosition: 'center',
+        }} />
+        <Box>
+          <Typography sx={{ color: 'var(--text-secondary)', lineHeight: 1.8 }}>
+            Marcus A. Scott was born February 2, 1890, in Tarboro, South Carolina, to Marcus and
+            Caroline Scott. He married Maggie Williams, also a native of South Carolina. In 1910, he
+            and his family moved to Long County, Georgia. He joined Macedonia Baptist Church in 1919
+            and was elected church clerk in 1934. He was ordained as a deacon and served as
+            superintendent of the Sunday School from 1940&ndash;1949, at which time he moved to
+            Florida. He became an ordained minister at Mt. Sinai Baptist Church in Gifford, FL. After
+            returning to Long County, he served as assistant pastor of Mt. Zion Baptist Church and as
+            a Bible teacher in the Ludowici District Union. He was a farmer and owned his own farm.
+            After the death of Maggie Scott, Marcus married Lena Rountree in May of 1929. Marcus and
+            Lena held many family reunions and started a tradition that we have carried on to this day.
+          </Typography>
+          <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mt: 1, fontStyle: 'italic' }}>
+            Please add to Marcus Scott&apos;s bio! E-mail{' '}
+            <a href="mailto:scott_phillips_family@yahoo.com" style={{ color: 'var(--color-primary-500)' }}>
+              scott_phillips_family@yahoo.com
+            </a>.
+          </Typography>
+        </Box>
+      </Stack>
 
-                                <div className="entry-content">
-                                    <h2>
-                                        <a href="http://scottphillipsfamily.com/?attachment_id=402">
-                                            <img
-                                                src="https://scottphillipsfamily.wordpress.com/wp-content/uploads/2012/10/marcus.jpg?w=584"
-                                                alt="Marcus A. Scott"
-                                                width="295"
-                                                height="289"
-                                            />
-                                        </a>
-                                    </h2>
-                                    <p>
-                                        Marcus A. Scott was born February 2, 1890, in Tarboro, South Carolina, to Marcus
-                                        and Caroline Scott. He received his education in the public schools of Tarboro.
-                                        He married Maggie Williams, also a native of South Carolina. In 1910, he and his
-                                        family moved to Long County, Georgia. Being active in civic and Christian
-                                        affairs, he joined Macedonia Baptist Church in 1919 under the leadership of Rev.
-                                        S. B. Stewart. Here he was elected church clerk in 1934. He was ordained as a
-                                        deacon and served as superintendent of the Sunday School from 1940-1949, at
-                                        which time he moved to Florida. He became an ordained minister at Mt. Sinai
-                                        Baptist Church in Gifford, FL. After returning to Long County, Georgia, he
-                                        served as assistant pastor of Mt. Zion Baptist Church for a number of years and
-                                        as a Bible teacher in the Ludowici District Union of the Tattnall Missionary
-                                        Baptist Association until he became incapacitated. He was a farmer and owned his
-                                        own farm. After the death of Maggie Scott, Marcus married Lena Rountree in May
-                                        of 1929. Marcus and Lena held many family reunions and started a tradition that
-                                        we have carried on to this day.
-                                    </p>
-                                    <p>
-                                        Please add to Marcus Scott’s bio! E-mail{" "}
-                                        <a href="mailto:scott_phillips_family@yahoo.com">
-                                            scott_phillips_family@yahoo.com
-                                        </a>.
-                                    </p>
+      <SectionTitle>Descendants of Marcus A. Scott</SectionTitle>
+      <FamilyTable>
+        <table>
+          <thead><tr><th>Person</th><th>Spouse</th><th>Children</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>
+                <strong><a href="https://scottphillipsfamily.wordpress.com/wp-content/uploads/2012/10/marcus-a-scott-obituary.pdf" target="_blank" rel="noopener noreferrer">Marcus A. Scott</a></strong><br />
+                (1890&ndash;1977)
+              </td>
+              <td>
+                1st wife: <strong>Maggie Scott</strong><br />
+                2nd wife: <strong><a href="https://scottphillipsfamily.wordpress.com/wp-content/uploads/2012/10/lena-scott-obituary.pdf" target="_blank" rel="noopener noreferrer">Lena Scott</a></strong><br />
+                (1904&ndash;1972)
+              </td>
+              <td>Allen, Victoria, Grace, Obidiah, Lewis, Marcus III, James, Louise</td>
+            </tr>
+          </tbody>
+        </table>
+      </FamilyTable>
 
-                                    <h1>DESCENDANTS OF MARCUS A. SCOTT</h1>
-                                    <table className="border-collapse border border-gray-300">
-                                        <tbody>
-                                            <tr>
-                                                <td>
-                                                    <a
-                                                        href="http://scottphillipsfamily.com/ancestry/marcus-a-scott/marcus/#main"
-                                                        rel="attachment wp-att-402"
-                                                    >
-                                                        <img
-                                                            src="https://scottphillipsfamily.wordpress.com/wp-content/uploads/2012/10/marcus.jpg?w=103&amp;h=150"
-                                                            alt="Marcus A. Scott"
-                                                            width="103"
-                                                            height="150"
-                                                        />
-                                                    </a>
-                                                    <br />
-                                                    <a
-                                                        title="Click to View Obituary"
-                                                        href="https://scottphillipsfamily.wordpress.com/wp-content/uploads/2012/10/marcus-a-scott-obituary.pdf"
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                    >
-                                                        Marcus A. Scott
-                                                    </a>
-                                                    <br />
-                                                    (1890-1977)
-                                                </td>
-                                                <td>
-                                                    Married
-                                                    <br />
-                                                    1st wife: Maggie Scott
-                                                    <br />
-                                                    2nd wife:{" "}
-                                                    <a
-                                                        title="Click to View Obituary"
-                                                        href="https://scottphillipsfamily.wordpress.com/wp-content/uploads/2012/10/lena-scott-obituary.pdf"
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                    >
-                                                        Lena Scott
-                                                    </a>
-                                                    <br />
-                                                    (1904-1972)
-                                                </td>
-                                                <td>
-                                                    <ul>
-                                                        <li>Allen Scott</li>
-                                                        <li>Victoria Scott Nephew</li>
-                                                        <li>Grace Scott Bradley</li>
-                                                        <li>Obidiah Scott</li>
-                                                        <li>Lewis Scott</li>
-                                                        <li>Marcus Scott III</li>
-                                                        <li>James Scott</li>
-                                                        <li>Louise Williams</li>
-                                                    </ul>
-                                                </td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
-
-                                    <h2>MARCUS A. SCOTT CHILDREN</h2>
-                                    <table className="border-collapse border border-gray-300">
-                                        <tbody>
-                                            <tr>
-                                                <td>
-                                                    <a
-                                                        href="http://scottphillipsfamily.com/allen-scott/"
-                                                        rel="attachment wp-att-432"
-                                                    >
-                                                        <img
-                                                            src="https://scottphillipsfamily.wordpress.com/wp-content/uploads/2012/12/allen-scott.jpg?w=99&amp;h=150"
-                                                            alt="Allen Scott"
-                                                            width="99"
-                                                            height="150"
-                                                        />
-                                                    </a>
-                                                    <p>Allen Scott</p>
-                                                </td>
-                                                <td>
-                                                    Married
-                                                    <br />
-                                                    <a href="https://scottphillipsfamily.wordpress.com/wp-content/uploads/2012/10/scan0018.jpg">
-                                                        Johnnie Mae Scott Allen
-                                                    </a>
-                                                    <br />
-                                                    (1921 – 2010)
-                                                </td>
-                                                <td>
-                                                    <ul>
-                                                        <li>Sarah Victoria (1937-1978)</li>
-                                                        <li>Allen Jr (1941-2000)</li>
-                                                        <li>Ernest</li>
-                                                        <li>Evelina</li>
-                                                        <li>Elijah (1939 – 2013)</li>
-                                                        <li>Frank</li>
-                                                        <li>Johnny</li>
-                                                    </ul>
-                                                </td>
-                                            </tr>
-                                            {/* Additional rows for other children */}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </article>
-                        </div>
-                    </div>
-                </div>
-            </main>
-        </div>
-    );
+      <SectionTitle>Marcus A. Scott Children</SectionTitle>
+      <FamilyTable>
+        <table>
+          <thead><tr><th>Child</th><th>Spouse</th><th>Children</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>
+                <Box sx={{
+                  width: 80, height: 120, borderRadius: 'var(--radius-md)',
+                  overflow: 'hidden', mb: 1,
+                  backgroundImage: 'url(https://scottphillipsfamily.wordpress.com/wp-content/uploads/2012/12/allen-scott.jpg)',
+                  backgroundSize: 'cover', backgroundPosition: 'center',
+                }} />
+                <strong>Allen Scott</strong>
+              </td>
+              <td>
+                Married<br />
+                <a href="https://scottphillipsfamily.wordpress.com/wp-content/uploads/2012/10/scan0018.jpg" target="_blank" rel="noopener noreferrer">Johnnie Mae Scott Allen</a><br />
+                (1921&ndash;2010)
+              </td>
+              <td>Sarah Victoria (1937&ndash;1978), Allen Jr (1941&ndash;2000), Ernest, Evelina, Elijah (1939&ndash;2013), Frank, Johnny</td>
+            </tr>
+            <tr>
+              <td><strong>Victoria Scott Nephew</strong></td>
+              <td>&mdash;</td>
+              <td>&mdash;</td>
+            </tr>
+            <tr>
+              <td><strong>Grace Scott Bradley</strong></td>
+              <td>&mdash;</td>
+              <td>&mdash;</td>
+            </tr>
+            <tr>
+              <td><strong>Obidiah Scott</strong></td>
+              <td>&mdash;</td>
+              <td>&mdash;</td>
+            </tr>
+            <tr>
+              <td><strong>Lewis Scott</strong></td>
+              <td>&mdash;</td>
+              <td>&mdash;</td>
+            </tr>
+            <tr>
+              <td><strong>Marcus Scott III</strong></td>
+              <td>&mdash;</td>
+              <td>&mdash;</td>
+            </tr>
+            <tr>
+              <td><strong>James Scott</strong></td>
+              <td>&mdash;</td>
+              <td>&mdash;</td>
+            </tr>
+            <tr>
+              <td><strong>Louise Williams</strong></td>
+              <td>&mdash;</td>
+              <td>&mdash;</td>
+            </tr>
+          </tbody>
+        </table>
+      </FamilyTable>
+    </AncestryLayout>
+  );
 }
