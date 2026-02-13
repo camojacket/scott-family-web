@@ -25,5 +25,14 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!api).*)'],
+  matcher: [
+    /*
+     * Match all request paths except:
+     * - api (API routes)
+     * - .swa (Azure Static Web Apps health check)
+     * - _next (Next.js internals)
+     * - images, favicon (static assets)
+     */
+    '/((?!api|.swa|_next|images|favicon.ico).*)',
+  ],
 };

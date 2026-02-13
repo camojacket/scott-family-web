@@ -39,15 +39,7 @@ jobs:
         run: npm run build
         working-directory: frontend
 
-      # Copy static + public assets into standalone for a self-contained deployment
-      - name: Prepare standalone output
-        run: |
-          cp -r frontend/.next/static frontend/.next/standalone/.next/static
-          if [ -d frontend/public ]; then
-            cp -r frontend/public frontend/.next/standalone/public
-          fi
-
-      # Now acquire the OIDC token RIGHT BEFORE the deploy step
+      # Acquire the OIDC token RIGHT BEFORE the deploy step to maximize the 5-min window
       - name: Install OIDC Client from Core Package
         run: npm install @actions/core@1.6.0 @actions/http-client
       - name: Get Id Token
@@ -66,10 +58,10 @@ jobs:
           action: "upload"
           ###### Repository/Build Configurations - These values can be configured to match your app requirements. ######
           # For more information regarding Static Web App workflow configurations, please visit: https://aka.ms/swaworkflowconfig
-          app_location: "/frontend/.next/standalone" # Deploy pre-built standalone directly
+          app_location: "/frontend" # App source code path
           api_location: "" # Api source code path - optional
-          output_location: "" # Already in the right shape
-          skip_app_build: true # Skip Oryx build since we already built
+          output_location: "" # Built app content directory - optional
+          skip_app_build: true # Already built above; skip Oryx build to save OIDC token time
           github_id_token: ${{ steps.idtoken.outputs.result }}
           ###### End of Repository/Build Configurations ######
 
