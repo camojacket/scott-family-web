@@ -1,4 +1,4 @@
-﻿package com.scottfamily.scottfamily.service;
+package com.scottfamily.scottfamily.service;
 
 import java.time.LocalDateTime;
 import java.util.List;
