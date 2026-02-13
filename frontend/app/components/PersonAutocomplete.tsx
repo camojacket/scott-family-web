@@ -124,7 +124,7 @@ export default function PersonAutocomplete({
 
   return (
     <Box>
-      <Autocomplete<PersonHit, false, true, true>
+      <Autocomplete<PersonHit, false, false, false>
         disabled={disabled || adderOpen}
         open={adderOpen ? false : undefined}
         value={selectedOption}
