@@ -1,0 +1,143 @@
+import org.jooq.meta.jaxb.*
+import org.jooq.codegen.GenerationTool
+
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '3.4.7'
+	id 'io.spring.dependency-management' version '1.1.7'
+	id("nu.studer.jooq") version "9.0"
+}
+
+group = 'com.scottfamily'
+version = '0.0.1-SNAPSHOT'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(21)
+	}
+}
+
+configurations {
+	compileOnly {
+		extendsFrom annotationProcessor
+	}
+}
+
+repositories {
+	mavenLocal()
+	flatDir {
+		dirs "${rootProject.projectDir}/libs"
+	}
+	mavenCentral()
+}
+
+ext {
+	set('springCloudAzureVersion', "5.22.0")
+}
+
+dependencies {
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	implementation 'org.springframework.boot:spring-boot-starter-data-jdbc'
+	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+	implementation 'org.springframework.boot:spring-boot-starter-mail'
+	implementation 'org.springframework.boot:spring-boot-starter-security'
+	implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
+	implementation 'org.springframework.boot:spring-boot-starter-validation'
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+	implementation 'com.azure.spring:spring-cloud-azure-starter'
+	implementation 'com.azure.spring:spring-cloud-azure-starter-actuator'
+	implementation 'com.azure.spring:spring-cloud-azure-starter-keyvault'
+	implementation 'com.azure.spring:spring-cloud-azure-starter-storage'
+	implementation 'org.thymeleaf.extras:thymeleaf-extras-springsecurity6'
+	implementation 'org.jooq:jooq:3.21.0-SNAPSHOT'
+	implementation("org.springframework.boot:spring-boot-starter-jooq")
+	jooqGenerator("com.microsoft.sqlserver:mssql-jdbc:12.6.1.jre11")
+	compileOnly 'org.projectlombok:lombok'
+	developmentOnly 'org.springframework.boot:spring-boot-devtools'
+	runtimeOnly 'com.h2database:h2'
+	runtimeOnly 'com.microsoft.sqlserver:mssql-jdbc'
+	annotationProcessor 'org.projectlombok:lombok'
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testImplementation 'org.springframework.security:spring-security-test'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+	// 🧱 jOOQ SNAPSHOT JARs — loaded via flatDir or local repo
+	jooqGenerator name: 'jooq-3.21.0-SNAPSHOT'
+	jooqGenerator name: 'jooq-codegen-3.21.0-SNAPSHOT'
+	jooqGenerator name: 'jooq-meta-3.21.0-SNAPSHOT'
+//	jooqGenerator name: 'jooq-meta-extensions-sqlserver-3.21.0-SNAPSHOT'
+
+	// 🔌 JDBC driver
+	jooqGenerator 'com.microsoft.sqlserver:mssql-jdbc:12.4.2.jre11'
+
+	// 🧩 JAXB for XML config
+	jooqGenerator 'jakarta.xml.bind:jakarta.xml.bind-api:3.0.1'
+	jooqGenerator 'org.glassfish.jaxb:jaxb-runtime:3.0.1'
+
+	// 🔁 Reactive Streams (used in core API as of 3.21)
+	jooqGenerator 'org.reactivestreams:reactive-streams:1.0.4'
+
+	// 💥 R2DBC SPI — required internally by 3.21
+	jooqGenerator 'io.r2dbc:r2dbc-spi:0.9.1.RELEASE'
+
+	// 🔊 Optional: Logging, in case errors or warnings are swallowed
+	jooqGenerator 'org.slf4j:slf4j-api:2.0.9'
+	jooqGenerator 'org.slf4j:slf4j-simple:2.0.9'
+}
+
+dependencyManagement {
+	imports {
+		mavenBom "com.azure.spring:spring-cloud-azure-dependencies:${springCloudAzureVersion}"
+	}
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+}
+
+
+jooq {
+	version = '3.21.0-SNAPSHOT'
+//	edition = nu.studer.gradle.jooq.JooqEdition.PRO
+
+	configurations {
+		main {
+			generateSchemaSourceOnCompilation = false
+
+			generationTool {    // <-- **Use generationTool**, not jooqConfiguration
+				jdbc {
+					driver = 'com.microsoft.sqlserver.jdbc.SQLServerDriver'
+					url = "jdbc:sqlserver://scott-family-web.database.windows.net:1433;" +
+							"database=Scott-Family-Web;" +
+//							"user=CloudSA9b37ab28@scott-family-web;" +
+//							"password=sarahscotttheprogenitor;" +
+							"encrypt=true;" +
+							"trustServerCertificate=false;" +
+							"hostNameInCertificate=*.database.windows.net;" +
+							"loginTimeout=30;"
+					user = "CloudSA9b37ab28@scott-family-web"
+					password = 'SarahScottTheProgenitor1'
+				}
+				generator {
+					name = 'org.jooq.codegen.DefaultGenerator'
+					database {
+						name = 'org.jooq.meta.sqlserver.SQLServerDatabase'
+						inputSchema = 'dbo'
+					}
+					generate {
+						daos = true
+						pojos = true
+					}
+					target {
+						packageName = 'com.yourproject.generated'
+						directory = "$buildDir/generated-src/jooq/main"
+					}
+				}
+			}
+		}
+	}
+}
+
+sourceSets.main {
+	java.srcDir("build/generated-jooq")
+}

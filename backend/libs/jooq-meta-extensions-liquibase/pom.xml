@@ -1,0 +1,66 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.jooq.pro</groupId>
+        <artifactId>jooq-parent</artifactId>
+        <version>3.21.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>jooq-meta-extensions-liquibase</artifactId>
+    <name>jOOQ Meta Extensions Liquibase</name>
+    <description>jOOQ's utilities for meta data source extensions integrating with Liquibase</description>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.jooq.org/inc/LICENSE.txt</url>
+            <distribution>repo</distribution>
+        </license>
+
+        <license>
+            <name>jOOQ License and Maintenance Agreement</name>
+            <url>https://www.jooq.org/legal/licensing</url>
+            <distribution>repo</distribution>
+        </license>
+
+    </licenses>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Automatic-Module-Name>org.jooq.meta.extensions.liquibase</Automatic-Module-Name>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.jooq.pro</groupId>
+            <artifactId>jooq-meta-extensions</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.liquibase</groupId>
+            <artifactId>liquibase-core</artifactId>
+        </dependency>
+
+
+
+
+
+
+
+
+
+    </dependencies>
+</project>
