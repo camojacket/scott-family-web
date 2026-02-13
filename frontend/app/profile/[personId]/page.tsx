@@ -111,8 +111,8 @@ export default function ProfilePage() {
       const fatherParent = p.parents?.find(r => r.personId === p.fatherId);
       if (fatherParent) setEditFatherRelation(fatherParent.relation);
       else setEditFatherRelation('BIOLOGICAL_FATHER');
-    } catch (err: any) {
-      setError(err?.message || 'Failed to load profile');
+    } catch (err: unknown) {
+      setError((err as Error)?.message || 'Failed to load profile');
     } finally {
       setLoading(false);
     }
@@ -151,7 +151,7 @@ export default function ProfilePage() {
         bannerImageUrl = res.cdnUrl;
       }
 
-      const body: any = {
+      const body: Record<string, unknown> = {
         firstName: editFirstName || undefined,
         lastName: editLastName || undefined,
         dateOfBirth: editDob || undefined,
@@ -175,8 +175,8 @@ export default function ProfilePage() {
       setProfileFile(undefined);
       setBannerFile(undefined);
       await loadProfile();
-    } catch (err: any) {
-      setSnack({ msg: err?.message || 'Save failed', severity: 'error' });
+    } catch (err: unknown) {
+      setSnack({ msg: (err as Error)?.message || 'Save failed', severity: 'error' });
     } finally {
       setSaving(false);
     }

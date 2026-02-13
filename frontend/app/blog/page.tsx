@@ -44,7 +44,7 @@ type PostSort = 'newest' | 'oldest' | 'popular';
 type CommentSort = 'oldest' | 'newest' | 'popular';
 
 export default function BlogPage() {
-  const { family, full } = useFamilyName();
+  const { full } = useFamilyName();
 
   // ── User state ──
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);

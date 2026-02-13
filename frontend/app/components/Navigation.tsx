@@ -41,7 +41,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import Collapse from '@mui/material/Collapse';
 import FacebookIcon from '@mui/icons-material/Facebook';
-import DescriptionIcon from '@mui/icons-material/Description';
+
 import InstagramIcon from '@mui/icons-material/Instagram';
 import CloseIcon from '@mui/icons-material/Close';
 import ErrorBoundary from './ErrorBoundary';

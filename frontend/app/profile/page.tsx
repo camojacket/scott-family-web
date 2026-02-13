@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Alert,
   Avatar,
@@ -65,7 +65,7 @@ export default function MeProfilePage() {
   // Editable fields
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
-  const [displayName, setDisplayName] = useState('');
+  const [, setDisplayName] = useState('');
   const [editFirstName, setEditFirstName] = useState('');
   const [editLastName, setEditLastName] = useState('');
   const [editMiddleName, setEditMiddleName] = useState('');
@@ -276,8 +276,8 @@ export default function MeProfilePage() {
       setEditing(false);
       setBannerFile(undefined);
       setProfileFile(undefined);
-    } catch (e: any) {
-      setMsg({ type: 'error', text: e?.message || 'Failed to update profile' });
+    } catch (e: unknown) {
+      setMsg({ type: 'error', text: (e as Error)?.message || 'Failed to update profile' });
     }
   }
 
@@ -286,8 +286,8 @@ export default function MeProfilePage() {
     try {
       await apiFetch('/api/auth/request-password-reset', { method: 'POST', body: { email: me.email } });
       setMsg({ type: 'info', text: 'Password reset link sent if the email exists.' });
-    } catch (e: any) {
-      setMsg({ type: 'error', text: e?.message || 'Failed to send reset email' });
+    } catch (e: unknown) {
+      setMsg({ type: 'error', text: (e as Error)?.message || 'Failed to send reset email' });
     }
   }
 

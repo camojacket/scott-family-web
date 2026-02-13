@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, useCallback, MouseEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
   Box, CircularProgress, Typography, Link as MUILink, IconButton, Tooltip,
   TextField, InputAdornment, Chip,
@@ -12,7 +12,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import NextLink from 'next/link';
-import { API_BASE, apiFetch } from '../lib/api';
+import { apiFetch } from '../lib/api';
 import * as d3 from 'd3';
 
 type FamilyNodeDto = {
@@ -331,8 +331,10 @@ function SvgTree({
       .on('zoom', (ev) => g.attr('transform', ev.transform.toString()));
 
     zoomRef.current = zoom;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     svg.call(zoom as any);
     const initial = d3.zoomIdentity.translate(translate.x, translate.y).scale(0.9);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     svg.call(zoom.transform as any, initial);
 
     return () => { svg.on('.zoom', null); };
@@ -347,6 +349,7 @@ function SvgTree({
     const tx = viewport.width / 2 - m.x * scale;
     const ty = viewport.height / 2 - m.y * scale;
     svg.transition().duration(400)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .call(zoomRef.current.transform as any, d3.zoomIdentity.translate(tx, ty).scale(scale));
   }, [matches, viewport]);
 
@@ -375,7 +378,7 @@ function SvgTree({
             value={searchTerm}
             onChange={e => { setSearchTerm(e.target.value); setMatchIdx(0); }}
             onKeyDown={e => {
-              if (e.key === 'Enter') { e.shiftKey ? goPrev() : goNext(); }
+              if (e.key === 'Enter') { if (e.shiftKey) goPrev(); else goNext(); }
               if (e.key === 'Escape') setSearchOpen(false);
             }}
             sx={{ width: 200, '& .MuiOutlinedInput-root': { fontSize: 13 } }}

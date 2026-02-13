@@ -6,7 +6,7 @@ import PhotoLibraryIcon from '@mui/icons-material/PhotoLibrary';
 import { useFamilyName } from '../lib/FamilyNameContext';
 
 export default function Page() {
-  const { family, full } = useFamilyName();
+  const { full } = useFamilyName();
 
   return (
     <Box sx={{ maxWidth: 700, mx: 'auto', py: { xs: 3, sm: 5 } }}>

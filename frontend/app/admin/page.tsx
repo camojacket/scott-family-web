@@ -142,8 +142,8 @@ export default function AdminPage() {
       try {
         const res = await apiFetch<PendingSignup[]>('/api/admin/pending-signups', { method: 'GET' });
         if (mounted) setSignups(res);
-      } catch (e: any) {
-        if (mounted) setSignupMsg({ type: 'error', text: e?.message || 'Failed to load pending signups' });
+      } catch (e: unknown) {
+        if (mounted) setSignupMsg({ type: 'error', text: (e as Error)?.message || 'Failed to load pending signups' });
       } finally {
         if (mounted) setLoadingSignups(false);
       }
@@ -155,8 +155,8 @@ export default function AdminPage() {
       try {
         const res = await apiFetch<ChangeItem[]>('/api/admin/pending-profile-changes', { method: 'GET' });
         if (mounted) setChanges(res);
-      } catch (e: any) {
-        if (mounted) setChangeMsg({ type: 'error', text: e?.message || 'Failed to load profile change requests' });
+      } catch (e: unknown) {
+        if (mounted) setChangeMsg({ type: 'error', text: (e as Error)?.message || 'Failed to load profile change requests' });
       } finally {
         if (mounted) setLoadingChanges(false);
       }
@@ -168,8 +168,8 @@ export default function AdminPage() {
       try {
         const res = await apiFetch<PersonRequestItem[]>('/api/admin/people/requests', { method: 'GET' });
         if (mounted) setPeopleReqs(res);
-      } catch (e: any) {
-        if (mounted) setPeopleMsg({ type: 'error', text: e?.message || 'Failed to load people requests' });
+      } catch (e: unknown) {
+        if (mounted) setPeopleMsg({ type: 'error', text: (e as Error)?.message || 'Failed to load people requests' });
       } finally {
         if (mounted) setLoadingPeople(false);
       }
@@ -238,8 +238,8 @@ export default function AdminPage() {
       setSignups(arr => arr.filter(s => !selectedSignups.includes(s.id)));
       setSelectedSignups([]);
       setSignupMsg({ type: 'success', text: 'Approved selected signups.' });
-    } catch (e: any) {
-      setSignupMsg({ type: 'error', text: e?.message || 'Failed to approve selected signups' });
+    } catch (e: unknown) {
+      setSignupMsg({ type: 'error', text: (e as Error)?.message || 'Failed to approve selected signups' });
     } finally {
       setLoadingSignups(false);
     }
@@ -257,8 +257,8 @@ export default function AdminPage() {
       setSignups(arr => arr.filter(s => !selectedSignups.includes(s.id)));
       setSelectedSignups([]);
       setSignupMsg({ type: 'success', text: 'Rejected selected signups.' });
-    } catch (e: any) {
-      setSignupMsg({ type: 'error', text: e?.message || 'Failed to reject selected signups' });
+    } catch (e: unknown) {
+      setSignupMsg({ type: 'error', text: (e as Error)?.message || 'Failed to reject selected signups' });
     } finally {
       setLoadingSignups(false);
     }
@@ -270,8 +270,8 @@ export default function AdminPage() {
       setSignups(arr => arr.filter(s => s.id !== id));
       setSelectedSignups(prev => prev.filter(x => x !== id));
       setSignupMsg({ type: 'success', text: 'Signup approved.' });
-    } catch (e: any) {
-      setSignupMsg({ type: 'error', text: e?.message || 'Failed to approve signup' });
+    } catch (e: unknown) {
+      setSignupMsg({ type: 'error', text: (e as Error)?.message || 'Failed to approve signup' });
     } finally {
       setLoadingSignups(false);
     }
@@ -283,8 +283,8 @@ export default function AdminPage() {
       setSignups(arr => arr.filter(s => s.id !== id));
       setSelectedSignups(prev => prev.filter(x => x !== id));
       setSignupMsg({ type: 'success', text: 'Signup rejected.' });
-    } catch (e: any) {
-      setSignupMsg({ type: 'error', text: e?.message || 'Failed to reject signup' });
+    } catch (e: unknown) {
+      setSignupMsg({ type: 'error', text: (e as Error)?.message || 'Failed to reject signup' });
     } finally {
       setLoadingSignups(false);
     }
@@ -302,8 +302,8 @@ export default function AdminPage() {
       setChanges(arr => arr.filter(c => !selectedChanges.includes(c.id)));
       setSelectedChanges([]);
       setChangeMsg({ type: 'success', text: 'Approved selected change requests.' });
-    } catch (e: any) {
-      setChangeMsg({ type: 'error', text: e?.message || 'Failed to approve selected changes' });
+    } catch (e: unknown) {
+      setChangeMsg({ type: 'error', text: (e as Error)?.message || 'Failed to approve selected changes' });
     } finally {
       setLoadingChanges(false);
     }
@@ -319,8 +319,8 @@ export default function AdminPage() {
       setChanges(arr => arr.filter(c => !selectedChanges.includes(c.id)));
       setSelectedChanges([]);
       setChangeMsg({ type: 'success', text: 'Rejected selected change requests.' });
-    } catch (e: any) {
-      setChangeMsg({ type: 'error', text: e?.message || 'Failed to reject selected changes' });
+    } catch (e: unknown) {
+      setChangeMsg({ type: 'error', text: (e as Error)?.message || 'Failed to reject selected changes' });
     } finally {
       setLoadingChanges(false);
     }
@@ -332,8 +332,8 @@ export default function AdminPage() {
       setChanges(arr => arr.filter(c => c.id !== id));
       setSelectedChanges(prev => prev.filter(x => x !== id));
       setChangeMsg({ type: 'success', text: 'Change approved.' });
-    } catch (e: any) {
-      setChangeMsg({ type: 'error', text: e?.message || 'Failed to approve change' });
+    } catch (e: unknown) {
+      setChangeMsg({ type: 'error', text: (e as Error)?.message || 'Failed to approve change' });
     } finally {
       setLoadingChanges(false);
     }
@@ -345,8 +345,8 @@ export default function AdminPage() {
       setChanges(arr => arr.filter(c => c.id !== id));
       setSelectedChanges(prev => prev.filter(x => x !== id));
       setChangeMsg({ type: 'success', text: 'Change rejected.' });
-    } catch (e: any) {
-      setChangeMsg({ type: 'error', text: e?.message || 'Failed to reject change' });
+    } catch (e: unknown) {
+      setChangeMsg({ type: 'error', text: (e as Error)?.message || 'Failed to reject change' });
     } finally {
       setLoadingChanges(false);
     }
@@ -364,8 +364,8 @@ export default function AdminPage() {
       setPeopleReqs(arr => arr.filter(r => !selectedPeopleReqs.includes(r.id)));
       setSelectedPeopleReqs([]);
       setPeopleMsg({ type: 'success', text: 'Approved selected people requests.' });
-    } catch (e: any) {
-      setPeopleMsg({ type: 'error', text: e?.message || 'Failed to approve selected requests' });
+    } catch (e: unknown) {
+      setPeopleMsg({ type: 'error', text: (e as Error)?.message || 'Failed to approve selected requests' });
     } finally {
       setLoadingPeople(false);
     }
@@ -381,8 +381,8 @@ export default function AdminPage() {
       setPeopleReqs(arr => arr.filter(r => !selectedPeopleReqs.includes(r.id)));
       setSelectedPeopleReqs([]);
       setPeopleMsg({ type: 'success', text: 'Rejected selected people requests.' });
-    } catch (e: any) {
-      setPeopleMsg({ type: 'error', text: e?.message || 'Failed to reject selected requests' });
+    } catch (e: unknown) {
+      setPeopleMsg({ type: 'error', text: (e as Error)?.message || 'Failed to reject selected requests' });
     } finally {
       setLoadingPeople(false);
     }
@@ -394,8 +394,8 @@ export default function AdminPage() {
       setPeopleReqs(arr => arr.filter(r => r.id !== id));
       setSelectedPeopleReqs(prev => prev.filter(x => x !== id));
       setPeopleMsg({ type: 'success', text: 'People request approved.' });
-    } catch (e: any) {
-      setPeopleMsg({ type: 'error', text: e?.message || 'Failed to approve people request' });
+    } catch (e: unknown) {
+      setPeopleMsg({ type: 'error', text: (e as Error)?.message || 'Failed to approve people request' });
     } finally {
       setLoadingPeople(false);
     }
@@ -407,8 +407,8 @@ export default function AdminPage() {
       setPeopleReqs(arr => arr.filter(r => r.id !== id));
       setSelectedPeopleReqs(prev => prev.filter(x => x !== id));
       setPeopleMsg({ type: 'success', text: 'People request rejected.' });
-    } catch (e: any) {
-      setPeopleMsg({ type: 'error', text: e?.message || 'Failed to reject people request' });
+    } catch (e: unknown) {
+      setPeopleMsg({ type: 'error', text: (e as Error)?.message || 'Failed to reject people request' });
     } finally {
       setLoadingPeople(false);
     }

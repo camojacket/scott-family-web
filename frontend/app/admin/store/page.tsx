@@ -23,8 +23,7 @@ import {
   TextField,
   IconButton,
   Collapse,
-  Switch,
-  FormControlLabel,
+
   Select,
   MenuItem,
   FormControl,
@@ -44,7 +43,7 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import ClearIcon from '@mui/icons-material/Clear';
 import Link from 'next/link';
 import { apiFetch } from '../../lib/api';
-import type { ProductDto, ProductVariantDto, OrderDto } from '../../lib/types';
+import type { ProductDto, OrderDto } from '../../lib/types';
 
 const SIZES = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL'];
 
@@ -100,9 +99,9 @@ export default function AdminStorePage() {
 
   useEffect(() => {
     Promise.all([loadProducts(), loadOrders()]).finally(() => setLoading(false));
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { if (tab === 1) loadOrders(); }, [tab, orderFilter]);
+  useEffect(() => { if (tab === 1) loadOrders(); }, [tab, orderFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const formatCents = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 

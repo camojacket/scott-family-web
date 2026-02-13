@@ -12,6 +12,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    environment: jooq db config
     permissions:
       contents: read #This is required for actions/checkout
 
@@ -25,6 +26,10 @@ jobs:
           distribution: 'microsoft'
 
       - name: Build with Gradle
+        env:
+          SPRING_DATASOURCE_URL: ${{ secrets.SPRING_DATASOURCE_URL }}
+          SPRING_DATASOURCE_USERNAME: ${{ secrets.SPRING_DATASOURCE_USERNAME }}
+          SPRING_DATASOURCE_PASSWORD: ${{ secrets.SPRING_DATASOURCE_PASSWORD }}
         run: |
           cd backend
           chmod +x gradlew

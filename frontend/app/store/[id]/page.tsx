@@ -6,7 +6,7 @@ import {
   Box,
   Typography,
   Button,
-  Chip,
+
   CircularProgress,
   FormControl,
   InputLabel,
@@ -85,7 +85,6 @@ export default function ProductDetailPage() {
   // Group available sizes
   const activeVariants = product.variants.filter(v => v.active);
   const sizes = [...new Set(activeVariants.map(v => v.size))];
-  const colors = [...new Set(activeVariants.map(v => v.color).filter(Boolean))];
 
   return (
     <Box sx={{ maxWidth: 800, mx: 'auto', py: { xs: 3, sm: 5 } }}>

@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import { Typography, Box, Divider } from '@mui/material';
 import { sanitizeHtml } from '../lib/sanitize';
-import type { ContentBlock, ImageBlock } from '../lib/pageContentTypes';
+import type { ContentBlock } from '../lib/pageContentTypes';
 
 /**
  * Renders a single content block. Pure display — no editing.

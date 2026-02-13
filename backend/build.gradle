@@ -95,7 +95,7 @@ tasks.named('compileJava') {
 }
 
 
-// Load .env file for jOOQ codegen credentials
+// Load .env file for jOOQ codegen credentials, fallback to system env vars
 def jooqEnv = [:]
 def jooqEnvFile = file('.env')
 if (jooqEnvFile.exists()) {
@@ -105,6 +105,12 @@ if (jooqEnvFile.exists()) {
 			def (key, value) = line.split('=', 2)
 			jooqEnv[key.trim()] = value.trim()
 		}
+	}
+}
+// System env vars override .env file values
+System.getenv().each { key, value ->
+	if (key.startsWith('SPRING_DATASOURCE_')) {
+		jooqEnv[key] = value
 	}
 }
 

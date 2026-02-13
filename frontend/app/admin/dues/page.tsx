@@ -94,7 +94,7 @@ export default function AdminDuesPage() {
     }
   };
 
-  useEffect(() => { load(); }, [year]);
+  useEffect(() => { load(); }, [year]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sorting
   const sorted = useMemo(() => {

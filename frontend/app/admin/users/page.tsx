@@ -92,8 +92,8 @@ export default function AdminUsersPage() {
     try {
       const data = await apiFetch<AdminUserItem[]>('/api/admin/users');
       setUsers(data);
-    } catch (e: any) {
-      setMsg({ type: 'error', text: e?.message || 'Failed to load users' });
+    } catch (e: unknown) {
+      setMsg({ type: 'error', text: (e as Error)?.message || 'Failed to load users' });
     } finally {
       setLoading(false);
     }
@@ -106,8 +106,8 @@ export default function AdminUsersPage() {
     try {
       const data = await apiFetch<AdminPersonItem[]>('/api/admin/users/profiles');
       setProfiles(data);
-    } catch (e: any) {
-      setMsg({ type: 'error', text: e?.message || 'Failed to load profiles' });
+    } catch (e: unknown) {
+      setMsg({ type: 'error', text: (e as Error)?.message || 'Failed to load profiles' });
     } finally {
       setLoadingProfiles(false);
     }
@@ -157,8 +157,8 @@ export default function AdminUsersPage() {
       setMsg({ type: 'success', text: `Deleted user "${deleteTarget.username}" and associated data.` });
       setDeleteTarget(null);
       loadUsers();
-    } catch (e: any) {
-      setMsg({ type: 'error', text: e?.message || 'Delete failed' });
+    } catch (e: unknown) {
+      setMsg({ type: 'error', text: (e as Error)?.message || 'Delete failed' });
     }
   }
 
@@ -177,8 +177,8 @@ export default function AdminUsersPage() {
       setBanTarget(null);
       setBanReason('');
       loadUsers();
-    } catch (e: any) {
-      setMsg({ type: 'error', text: e?.message || 'Ban failed' });
+    } catch (e: unknown) {
+      setMsg({ type: 'error', text: (e as Error)?.message || 'Ban failed' });
     }
   }
 
@@ -187,8 +187,8 @@ export default function AdminUsersPage() {
       await apiFetch(`/api/admin/users/${user.id}/unban`, { method: 'POST' });
       setMsg({ type: 'success', text: `Unbanned "${user.username}".` });
       loadUsers();
-    } catch (e: any) {
-      setMsg({ type: 'error', text: e?.message || 'Unban failed' });
+    } catch (e: unknown) {
+      setMsg({ type: 'error', text: (e as Error)?.message || 'Unban failed' });
     }
   }
 
@@ -199,8 +199,8 @@ export default function AdminUsersPage() {
       setMsg({ type: 'success', text: `Deleted profile "${deleteProfileTarget.displayName}" and relationship data.` });
       setDeleteProfileTarget(null);
       loadProfiles();
-    } catch (e: any) {
-      setMsg({ type: 'error', text: e?.message || 'Delete failed' });
+    } catch (e: unknown) {
+      setMsg({ type: 'error', text: (e as Error)?.message || 'Delete failed' });
     }
   }
 

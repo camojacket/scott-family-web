@@ -24,7 +24,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import GroupIcon from '@mui/icons-material/Group';
 import { apiFetch } from '../lib/api';
 import { useFamilyName } from '../lib/FamilyNameContext';
-import type { DuesPageDto, DuesBatchDto, DuesPaymentDto } from '../lib/types';
+import type { DuesPageDto, DuesBatchDto } from '../lib/types';
 
 /** Dues amount in cents — $25. Display-only; server enforces actual amount. */
 const DUES_AMOUNT_CENTS = 2500;
@@ -48,7 +48,7 @@ export default function DuesPage() {
   const [guests, setGuests] = useState<GuestEntry[]>([]);
   const [guestName, setGuestName] = useState('');
   const [guestAge, setGuestAge] = useState('');
-  const [batchResult, setBatchResult] = useState<DuesBatchDto | null>(null);
+  const [, setBatchResult] = useState<DuesBatchDto | null>(null);
 
   const loadDuesPage = useCallback(async () => {
     try {

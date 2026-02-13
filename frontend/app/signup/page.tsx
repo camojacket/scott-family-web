@@ -36,7 +36,7 @@ function useDebounced<T>(val: T, ms = 300) {
 }
 
 export default function SignupPage() {
-  const { family, full } = useFamilyName();
+  const { full } = useFamilyName();
   const [form, setForm] = useState({
     username: '',
     password: '',

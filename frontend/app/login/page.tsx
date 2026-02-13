@@ -7,7 +7,7 @@ import { apiFetch } from '../lib/api';
 import { useFamilyName } from '../lib/FamilyNameContext';
 
 export default function LoginPage() {
-  const { family, full } = useFamilyName();
+  const { full } = useFamilyName();
   const router = useRouter();
   const sp = useSearchParams();
   const next = sp.get('next') || '/profile';
@@ -64,8 +64,8 @@ export default function LoginPage() {
       localStorage.setItem('profile', JSON.stringify(profile));
       window.dispatchEvent(new Event('profile-updated'));
       router.replace(next);
-    } catch (err: any) {
-      if (!msg) setMsg({ type: 'error', text: err?.message || 'Login failed' });
+    } catch (err: unknown) {
+      if (!msg) setMsg({ type: 'error', text: (err as Error)?.message || 'Login failed' });
     } finally {
       setLoading(false);
     }
@@ -77,8 +77,8 @@ export default function LoginPage() {
     try {
       await apiFetch('/api/auth/forgot-username', { method: 'POST', body: { email } });
       setMsg({ type: 'info', text: 'If the email exists, your username has been sent.' });
-    } catch (e: any) {
-      setMsg({ type: 'error', text: e?.message || 'Failed to send username email' });
+    } catch (e: unknown) {
+      setMsg({ type: 'error', text: (e as Error)?.message || 'Failed to send username email' });
     }
   }
 
@@ -88,8 +88,8 @@ export default function LoginPage() {
     try {
       await apiFetch('/api/auth/request-password-reset', { method: 'POST', body: { email } });
       setMsg({ type: 'info', text: 'If the email exists, a reset link has been sent.' });
-    } catch (e: any) {
-      setMsg({ type: 'error', text: e?.message || 'Failed to send reset email' });
+    } catch (e: unknown) {
+      setMsg({ type: 'error', text: (e as Error)?.message || 'Failed to send reset email' });
     }
   }
 
