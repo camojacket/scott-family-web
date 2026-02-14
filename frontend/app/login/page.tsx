@@ -62,6 +62,9 @@ export default function LoginPage() {
 
       const profile = await resp.json();
       localStorage.setItem('profile', JSON.stringify(profile));
+      // Set a session marker cookie on the frontend domain so middleware knows we're logged in.
+      // The actual auth session (JSESSIONID) lives on the backend domain.
+      document.cookie = 'sf_sess=1; path=/; max-age=86400; SameSite=Lax; Secure';
       window.dispatchEvent(new Event('profile-updated'));
       router.replace(next);
     } catch (err: unknown) {

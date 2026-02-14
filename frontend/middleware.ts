@@ -8,11 +8,10 @@ export function middleware(req: NextRequest) {
   const isPublic = PUBLIC.some((p) => pathname === p || pathname.startsWith(p));
   if (isPublic) return NextResponse.next();
 
-  // Read client session from cookie set by backend (e.g., JSESSIONID). If absent, redirect to login.
-  const hasSession =
-    req.cookies.has('JSESSIONID') ||
-    req.cookies.has('SESSION') ||
-    req.cookies.has('sf_sess');
+  // Check for session marker cookie set by the frontend after successful login.
+  // The actual auth session (JSESSIONID) lives on the backend domain and isn't
+  // visible to the frontend middleware in cross-origin deployments.
+  const hasSession = req.cookies.has('sf_sess');
 
   if (!hasSession) {
     const url = req.nextUrl.clone();

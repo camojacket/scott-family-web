@@ -158,6 +158,7 @@ export default function MeProfilePage() {
       await apiFetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
     } finally {
       localStorage.removeItem('profile');
+      document.cookie = 'sf_sess=; path=/; max-age=0; SameSite=Lax; Secure';
       window.dispatchEvent(new Event('profile-updated'));
       window.location.href = '/login';
     }

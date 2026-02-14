@@ -61,6 +61,7 @@ export function useSessionTimeout(): SessionTimeoutState {
   // Perform logout — clear local state, redirect to login
   const performLogout = useCallback(() => {
     localStorage.removeItem('profile');
+    document.cookie = 'sf_sess=; path=/; max-age=0; SameSite=Lax; Secure';
     window.dispatchEvent(new Event('profile-updated'));
 
     // Call server logout (best-effort)
