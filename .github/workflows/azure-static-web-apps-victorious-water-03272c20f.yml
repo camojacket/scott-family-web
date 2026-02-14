@@ -38,6 +38,9 @@ jobs:
       - name: Build Next.js app
         run: npm run build
         working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_BASE: ${{ secrets.NEXT_PUBLIC_API_BASE }}
+          NEXT_PUBLIC_SCOTT_ONLY_DOMAINS: "scott-family-descendants.com,scottfamilydescendants.net,scottfamilydescendants.org"
 
       # Acquire the OIDC token RIGHT BEFORE the deploy step to maximize the 5-min window
       - name: Install OIDC Client from Core Package
