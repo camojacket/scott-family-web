@@ -54,6 +54,21 @@ export default function LoginPage() {
             });
             return;
           }
+          if (data.error === 'TOO_MANY_ATTEMPTS') {
+            setMsg({
+              type: 'error',
+              text: `Too many login attempts. Please try again in ${data.retryAfterSeconds} seconds.`,
+            });
+            return;
+          }
+          if (data.error === 'INVALID_CREDENTIALS') {
+            setMsg({ type: 'error', text: 'Invalid username or password.' });
+            return;
+          }
+          if (data.error === 'ACCOUNT_RESTRICTED') {
+            setMsg({ type: 'error', text: data.message || 'Account access restricted.' });
+            return;
+          }
           throw new Error(data.message || data.error || 'Login failed');
         }
         const text = await resp.text();

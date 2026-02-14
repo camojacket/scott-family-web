@@ -5,6 +5,7 @@ import com.scottfamily.scottfamily.dto.DTOs;
 import com.scottfamily.scottfamily.service.AuthService;
 import com.scottfamily.scottfamily.service.CommentService;
 import com.scottfamily.scottfamily.service.FamilyTreeService;
+import com.scottfamily.scottfamily.security.LoginRateLimiter;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.springframework.web.bind.annotation.*;
@@ -44,13 +45,33 @@ public class Controller {
     public ResponseEntity<?> login(@RequestBody DTOs.LoginRequest req,
                                  HttpServletRequest request,
                                  HttpServletResponse response) {
+
+        // IP-based rate limiting to prevent brute-force attacks.
+        // Throttles the attacker's IP, not the target account — so a
+        // legitimate user on a different IP can still log in normally.
+        String clientIp = getClientIp(request);
+        LoginRateLimiter.RateLimitResult rateCheck = LoginRateLimiter.check(clientIp);
+        if (!rateCheck.allowed()) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(Map.of(
+                    "error", "TOO_MANY_ATTEMPTS",
+                    "message", "Too many login attempts. Please try again in " + rateCheck.retryAfterSeconds() + " seconds.",
+                    "retryAfterSeconds", rateCheck.retryAfterSeconds()
+            ));
+        }
+
         DTOs.ProfileDto profile;
         try {
             profile = authService.authenticate(req);
+        } catch (IllegalArgumentException ex) {
+            // Bad credentials — record the failed attempt and return a clear message
+            LoginRateLimiter.recordFailure(clientIp);
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                    "error", "INVALID_CREDENTIALS",
+                    "message", "Invalid username or password."
+            ));
         } catch (IllegalStateException ex) {
             String msg = ex.getMessage();
             if (msg != null && msg.startsWith("BANNED|")) {
-                // Parse: BANNED|<until>|<reason>
                 String[] parts = msg.split("\\|", 3);
                 String until = parts.length > 1 ? parts[1] : null;
                 String reason = parts.length > 2 && !parts[2].isEmpty() ? parts[2] : null;
@@ -60,8 +81,11 @@ public class Controller {
                         "banReason", reason != null ? reason : ""
                 ));
             }
-            // Re-throw for other IllegalStateException (e.g. "Account pending approval")
-            throw ex;
+            // Account pending approval, etc.
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "ACCOUNT_RESTRICTED",
+                    "message", msg != null ? msg : "Account access restricted."
+            ));
         }
 
         String role = profile.userRole(); // adapt to your accessor
@@ -78,7 +102,19 @@ public class Controller {
         SecurityContextHolder.setContext(context);
         securityContextRepository.saveContext(context, request, response);
 
+        // Clear rate-limit counter on successful login
+        LoginRateLimiter.recordSuccess(clientIp);
+
         return ResponseEntity.ok(profile);
+    }
+
+    /** Extracts the real client IP, respecting X-Forwarded-For from Azure load balancers. */
+    private String getClientIp(HttpServletRequest request) {
+        String xff = request.getHeader("X-Forwarded-For");
+        if (xff != null && !xff.isBlank()) {
+            return xff.split(",")[0].trim();
+        }
+        return request.getRemoteAddr();
     }
 
     @PostMapping("/auth/signup")
