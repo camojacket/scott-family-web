@@ -2,6 +2,9 @@ server:
   servlet:
     session:
       timeout: ${SESSION_TIMEOUT:20m}   # configurable via env; default 20 minutes of inactivity
+      cookie:
+        same-site: none   # required: SWA (frontend) and App Service (backend) are different origins
+        secure: true       # required when same-site=none
 
 spring:
   servlet:

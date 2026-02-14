@@ -134,7 +134,11 @@ export function useSessionTimeout(): SessionTimeoutState {
       if (!resp.ok) {
         // Session already expired server-side
         if (resp.status === 401 || resp.status === 403) {
-          performLogout();
+          // Double-check: only logout if we still think we're logged in
+          // AND enough time has passed since login (avoid race with cross-origin cookie setup)
+          if (isLoggedIn() && Date.now() - lastActivityRef.current > 30_000) {
+            performLogout();
+          }
         }
         return;
       }
