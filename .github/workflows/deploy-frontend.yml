@@ -81,4 +81,6 @@ jobs:
               --resource-group scott-family \
               --src-path frontend/deploy.zip \
               --type zip \
-              --clean true
+              --clean true \
+              --async true \
+              --timeout 600
