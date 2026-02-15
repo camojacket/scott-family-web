@@ -35,7 +35,6 @@ import MailIcon from '@mui/icons-material/Mail';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import PersonIcon from '@mui/icons-material/Person';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
-import PeopleIcon from '@mui/icons-material/People';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
@@ -49,22 +48,6 @@ import AnnouncementBanner from './AnnouncementBanner';
 import SessionTimeoutDialog from './SessionTimeoutDialog';
 import { useSessionTimeout } from '../lib/useSessionTimeout';
 import { useFamilyName } from '../lib/FamilyNameContext';
-
-const DESCENDANTS = [
-  'ellen-scott-phillips',
-  'eugene-scott',
-  'jeff-scott',
-  'jim-scott',
-  'joe-scott',
-  'mamie-scott-flynn',
-  'marcus-a-scott',
-  'sandy-scott',
-  'willie-scott',
-] as const;
-
-function formatName(slug: string): string {
-  return slug.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-}
 
 interface NavLink {
   href: string;
@@ -88,12 +71,6 @@ const NAV_LINKS: NavLink[] = [
 
 export default function Navigation({ children }: { children: React.ReactNode }) {
   const { family, full } = useFamilyName();
-
-  // Descendants menu state
-  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-  const open = Boolean(anchorEl);
-  const handleMenuOpen = (e: React.MouseEvent<HTMLElement>) => setAnchorEl(e.currentTarget as HTMLElement);
-  const handleMenuClose = () => setAnchorEl(null);
 
   // History dropdown menu state
   const [historyAnchorEl, setHistoryAnchorEl] = useState<null | HTMLElement>(null);
@@ -323,23 +300,6 @@ export default function Navigation({ children }: { children: React.ReactNode }) 
                   History
                 </Button>
 
-                <Button
-                  onClick={handleMenuOpen}
-                  endIcon={<KeyboardArrowDownIcon sx={{ fontSize: '1rem !important' }} />}
-                  size="small"
-                  sx={{
-                    color: 'var(--color-gray-700)',
-                    fontWeight: 500,
-                    fontSize: '0.82rem',
-                    px: 1.5,
-                    py: 0.75,
-                    borderRadius: 'var(--radius-sm)',
-                    '&:hover': { bgcolor: 'var(--color-primary-50)', color: 'var(--color-primary-600)' },
-                  }}
-                >
-                  Descendants
-                </Button>
-
                 {isAdmin && (
                   <Button
                     component={Link}
@@ -474,18 +434,6 @@ export default function Navigation({ children }: { children: React.ReactNode }) 
           </Collapse>
 
           <Divider sx={{ my: 1 }} />
-          <ListItemButton
-            onClick={handleMenuOpen}
-            sx={{ mx: 1, borderRadius: 'var(--radius-sm)' }}
-          >
-            <ListItemIcon sx={{ minWidth: 36, color: 'var(--color-primary-500)' }}>
-              <PeopleIcon fontSize="small" />
-            </ListItemIcon>
-            <ListItemText
-              primary="Descendants"
-              primaryTypographyProps={{ fontSize: '0.9rem', fontWeight: 500 }}
-            />
-          </ListItemButton>
           {isAdmin && (
             <ListItemButton
               component={Link}
@@ -569,43 +517,6 @@ export default function Navigation({ children }: { children: React.ReactNode }) 
             Obituaries
           </Link>
         </MenuItem>
-      </Menu>
-
-      {/* Descendants dropdown — shared between mobile & desktop */}
-      <Menu
-        anchorEl={anchorEl}
-        open={open}
-        onClose={handleMenuClose}
-        TransitionComponent={Fade}
-        PaperProps={{
-          sx: {
-            mt: 0.5,
-            borderRadius: 'var(--radius-md)',
-            boxShadow: 'var(--shadow-lg)',
-            border: '1px solid var(--border)',
-            minWidth: 220,
-          },
-        }}
-      >
-        {DESCENDANTS.map((descendant) => (
-          <MenuItem
-            key={descendant}
-            onClick={handleMenuClose}
-            sx={{
-              px: 2.5,
-              py: 1,
-              fontSize: '0.9rem',
-              '&:hover': { bgcolor: 'var(--color-primary-50)', color: 'var(--color-primary-700)' },
-            }}
-          >
-            <Link
-              href={`/ancestry/${descendant}`}
-              style={{ textDecoration: 'none', color: 'inherit', width: '100%' }}
-            >
-              {formatName(descendant)}
-            </Link>
-          </MenuItem>
-        ))}
       </Menu>
 
       {/* ── Announcement Banner ────────────────────────────────── */}

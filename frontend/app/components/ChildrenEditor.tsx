@@ -8,7 +8,7 @@ const RELS = [
 ] as const;
 
 export default function ChildrenEditor({ personId, hasAccount, apiBase }: { personId: number; hasAccount?: boolean; apiBase?: string }) {
-  const base = apiBase ?? process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:8080';
+  const base = apiBase ?? process.env.NEXT_PUBLIC_API_BASE ?? '';
   const [childId, setChildId] = React.useState<number | null>(null);
   const [relation, setRelation] = React.useState<typeof RELS[number]>('BIOLOGICAL_FATHER');
   const [msg, setMsg] = React.useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);

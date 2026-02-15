@@ -158,7 +158,6 @@ export default function MeProfilePage() {
       await apiFetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
     } finally {
       localStorage.removeItem('profile');
-      document.cookie = 'sf_sess=; path=/; max-age=0; SameSite=Lax; Secure';
       window.dispatchEvent(new Event('profile-updated'));
       window.location.href = '/login';
     }
@@ -311,6 +310,10 @@ export default function MeProfilePage() {
     || familySiblings.length > 0 || familySpouses.length > 0
     || !!pendingMotherLabel || !!pendingFatherLabel || pendingChildren.length > 0 || pendingPeople.length > 0;
 
+  /** Format relation enum like BIOLOGICAL_FATHER → "Biological Father" */
+  const formatRelation = (rel: string) =>
+    rel.split('_').map(w => w.charAt(0) + w.slice(1).toLowerCase()).join(' ');
+
   return (
     <Box sx={{ maxWidth: 860, mx: 'auto', py: { xs: 3, sm: 5 } }}>
       {/* Banner + avatar hero section */}
@@ -427,7 +430,7 @@ export default function MeProfilePage() {
               {familyChildren.map(c => (
                 <Chip
                   key={`child-${c.personId}`}
-                  label={`Child: ${c.displayName}`}
+                  label={`${c.relation && c.relation !== 'CHILD' ? formatRelation(c.relation) : 'Child'}: ${c.displayName}`}
                   component="a"
                   href={`/profile/${c.personId}`}
                   clickable
@@ -616,7 +619,7 @@ export default function MeProfilePage() {
                 {familyChildren.map((c) => (
                   <Chip
                     key={c.personId}
-                    label={c.displayName}
+                    label={`${c.relation && c.relation !== 'CHILD' ? formatRelation(c.relation) : 'Child'}: ${c.displayName}`}
                     variant="outlined"
                     size="small"
                   />
@@ -654,11 +657,8 @@ export default function MeProfilePage() {
               </Stack>
             )}
 
-            {me.personId ? (
+            {me.personId && me.userRole?.includes('ADMIN') ? (
               <>
-                <Typography variant="caption" sx={{ color: 'var(--text-secondary)' }}>
-                  Add children below, then click &ldquo;Save Changes&rdquo; to submit for approval.
-                </Typography>
 
                 {childSlots.map((slot, idx) => (
                   <Stack key={slot.key} direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems="flex-start">
@@ -728,11 +728,7 @@ export default function MeProfilePage() {
                   + Add Child
                 </Button>
               </>
-            ) : (
-              <Typography variant="caption" sx={{ color: 'var(--text-secondary)' }}>
-                Your profile hasn&apos;t been linked to a person record yet. Contact an admin to enable family tree features.
-              </Typography>
-            )}
+            ) : null}
 
             <Divider />
 

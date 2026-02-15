@@ -3,8 +3,8 @@ server:
     session:
       timeout: ${SESSION_TIMEOUT:20m}   # configurable via env; default 20 minutes of inactivity
       cookie:
-        same-site: none   # required: SWA (frontend) and App Service (backend) are different origins
-        secure: true       # required when same-site=none
+        same-site: lax    # same origin via Front Door — lax is sufficient
+        secure: true       # Front Door uses HTTPS
 
 spring:
   servlet:

@@ -4,7 +4,6 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { apiFetch, uploadAnonymous } from '../../lib/api';
 import PersonAutocomplete from '../../components/PersonAutocomplete';
-import ChildrenEditor from '../../components/ChildrenEditor';
 import ArticleIcon from '@mui/icons-material/Article';
 import {
   Avatar,
@@ -572,6 +571,9 @@ export default function ProfilePage() {
                   variant="outlined"
                   size="small"
                 />
+                <Typography variant="caption" sx={{ color: 'var(--text-secondary)' }}>
+                  ({s.relation.split('_').map(w => w.charAt(0) + w.slice(1).toLowerCase()).join(' ')})
+                </Typography>
               </Stack>
             ))}
           </Stack>
@@ -593,6 +595,9 @@ export default function ProfilePage() {
                   variant="outlined"
                   size="small"
                 />
+                <Typography variant="caption" sx={{ color: 'var(--text-secondary)' }}>
+                  ({ch.relation.split('_').map(w => w.charAt(0) + w.slice(1).toLowerCase()).join(' ')})
+                </Typography>
               </Stack>
             ))}
           </Stack>
@@ -603,8 +608,7 @@ export default function ProfilePage() {
         )}
       </Box>
 
-      {/* Children editor */}
-      {isLoggedIn && <ChildrenEditor personId={Number(personId)} hasAccount={profile?.hasAccount} />}
+
 
       {/* Snackbar feedback */}
       <Snackbar

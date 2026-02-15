@@ -191,37 +191,66 @@ public class PeopleService {
         List<DTOs.PersonRelDto> parents = new ArrayList<>(parentMap.values());
 
         // Siblings — same mother or same father (excluding self)
-        Set<Long> siblingIds = new LinkedHashSet<>();
+        // Use a map so we can track the relation type per sibling
+        Map<Long, String> siblingRelMap = new LinkedHashMap<>();
         Long myMotherId = p.get(PEOPLE.MOTHER_ID);
         Long myFatherId = p.get(PEOPLE.FATHER_ID);
+
+        // Siblings sharing the same mother
+        Set<Long> maternalSibIds = new LinkedHashSet<>();
         if (myMotherId != null) {
             dsl.select(PEOPLE.ID).from(PEOPLE)
                     .where(PEOPLE.MOTHER_ID.eq(myMotherId).and(PEOPLE.ID.ne(personId)))
                     .fetch(PEOPLE.ID)
-                    .forEach(siblingIds::add);
+                    .forEach(maternalSibIds::add);
         }
+
+        // Siblings sharing the same father
+        Set<Long> paternalSibIds = new LinkedHashSet<>();
         if (myFatherId != null) {
             dsl.select(PEOPLE.ID).from(PEOPLE)
                     .where(PEOPLE.FATHER_ID.eq(myFatherId).and(PEOPLE.ID.ne(personId)))
                     .fetch(PEOPLE.ID)
-                    .forEach(siblingIds::add);
+                    .forEach(paternalSibIds::add);
         }
 
-        // Also check PERSON_SIBLING table
-        dsl.select(DSL.field(DSL.name("PERSON_B_ID"), Long.class))
+        // Classify: shared both parents = full sibling, one parent = half sibling
+        Set<Long> allColumnSibs = new LinkedHashSet<>();
+        allColumnSibs.addAll(maternalSibIds);
+        allColumnSibs.addAll(paternalSibIds);
+        for (Long sid : allColumnSibs) {
+            boolean shareMother = maternalSibIds.contains(sid);
+            boolean shareFather = paternalSibIds.contains(sid);
+            if (shareMother && shareFather) {
+                siblingRelMap.put(sid, "SIBLING");
+            } else if (shareMother) {
+                siblingRelMap.put(sid, "HALF_SIBLING_MATERNAL");
+            } else {
+                siblingRelMap.put(sid, "HALF_SIBLING_PATERNAL");
+            }
+        }
+
+        // Also check PERSON_SIBLING table (explicit entries with RELATION)
+        dsl.select(DSL.field(DSL.name("PERSON_B_ID"), Long.class),
+                   DSL.field(DSL.name("RELATION"), String.class))
                 .from(DSL.table(DSL.name("PERSON_SIBLING")))
                 .where(DSL.field(DSL.name("PERSON_A_ID"), Long.class).eq(personId))
-                .fetch(DSL.field(DSL.name("PERSON_B_ID"), Long.class))
-                .forEach(siblingIds::add);
-        dsl.select(DSL.field(DSL.name("PERSON_A_ID"), Long.class))
+                .fetch()
+                .forEach(r -> siblingRelMap.putIfAbsent(
+                        r.get(DSL.field(DSL.name("PERSON_B_ID"), Long.class)),
+                        r.get(DSL.field(DSL.name("RELATION"), String.class))));
+        dsl.select(DSL.field(DSL.name("PERSON_A_ID"), Long.class),
+                   DSL.field(DSL.name("RELATION"), String.class))
                 .from(DSL.table(DSL.name("PERSON_SIBLING")))
                 .where(DSL.field(DSL.name("PERSON_B_ID"), Long.class).eq(personId))
-                .fetch(DSL.field(DSL.name("PERSON_A_ID"), Long.class))
-                .forEach(siblingIds::add);
+                .fetch()
+                .forEach(r -> siblingRelMap.putIfAbsent(
+                        r.get(DSL.field(DSL.name("PERSON_A_ID"), Long.class)),
+                        r.get(DSL.field(DSL.name("RELATION"), String.class))));
 
         List<DTOs.PersonRelDto> siblings = new ArrayList<>();
-        for (Long sid : siblingIds) {
-            siblings.add(relDto(sid, "SIBLING"));
+        for (var entry : siblingRelMap.entrySet()) {
+            siblings.add(relDto(entry.getKey(), entry.getValue() != null ? entry.getValue() : "SIBLING"));
         }
 
         // Spouses from PERSON_SPOUSE table
@@ -245,7 +274,8 @@ public class PeopleService {
 
         // Children = (inverse of columns) UNION (PERSON_PARENT), deduplicated
         var childrenViaColumns = dsl.select(PEOPLE.ID, PEOPLE.FIRST_NAME, PEOPLE.LAST_NAME,
-                        P_PREFIX, P_MIDDLE_NAME, P_SUFFIX, PEOPLE.DATE_OF_BIRTH, DATE_OF_DEATH)
+                        P_PREFIX, P_MIDDLE_NAME, P_SUFFIX, PEOPLE.DATE_OF_BIRTH, DATE_OF_DEATH,
+                        PEOPLE.MOTHER_ID, PEOPLE.FATHER_ID)
                 .from(PEOPLE)
                 .where(PEOPLE.MOTHER_ID.eq(personId).or(PEOPLE.FATHER_ID.eq(personId)))
                 .fetch(r -> DTOs.PersonRelDto.builder()
@@ -254,7 +284,7 @@ public class PeopleService {
                                 r.get(P_PREFIX), r.get(PEOPLE.FIRST_NAME), r.get(P_MIDDLE_NAME),
                                 r.get(PEOPLE.LAST_NAME), r.get(P_SUFFIX),
                                 r.get(PEOPLE.DATE_OF_BIRTH), r.get(DATE_OF_DEATH)))
-                        .relation("CHILD")
+                        .relation("BIOLOGICAL_CHILD")
                         .build());
 
         var childrenViaPP = dsl.select(PERSON_PARENT.CHILD_PERSON_ID, PERSON_PARENT.RELATION,
@@ -263,14 +293,37 @@ public class PeopleService {
                 .from(PERSON_PARENT.join(PEOPLE).on(PEOPLE.ID.eq(PERSON_PARENT.CHILD_PERSON_ID)))
                 .where(PERSON_PARENT.PARENT_PERSON_ID.eq(personId))
                 .and(PERSON_PARENT.VALID_TO.isNull().or(PERSON_PARENT.VALID_TO.ge(DSL.currentLocalDate())))
-                .fetch(r -> DTOs.PersonRelDto.builder()
+                .fetch(r -> {
+                    // Convert the parent-type relation to a child-type relation
+                    String parentRel = r.get(PERSON_PARENT.RELATION);
+                    String childRel;
+                    if (parentRel != null) {
+                        switch (parentRel) {
+                            case "BIOLOGICAL_MOTHER": case "BIOLOGICAL_FATHER":
+                                childRel = "BIOLOGICAL_CHILD"; break;
+                            case "ADOPTIVE_MOTHER": case "ADOPTIVE_FATHER": case "ADOPTIVE_PARENT":
+                                childRel = "ADOPTED_CHILD"; break;
+                            case "STEP_MOTHER": case "STEP_FATHER": case "STEP_PARENT":
+                                childRel = "STEP_CHILD"; break;
+                            case "FOSTER_MOTHER": case "FOSTER_FATHER": case "FOSTER_PARENT":
+                                childRel = "FOSTER_CHILD"; break;
+                            case "GUARDIAN":
+                                childRel = "WARD"; break;
+                            default:
+                                childRel = "CHILD"; break;
+                        }
+                    } else {
+                        childRel = "CHILD";
+                    }
+                    return DTOs.PersonRelDto.builder()
                         .personId(r.get(PERSON_PARENT.CHILD_PERSON_ID))
-                        .relation("CHILD")
+                        .relation(childRel)
                         .displayName(fullDisplayName(
                                 r.get(P_PREFIX), r.get(PEOPLE.FIRST_NAME), r.get(P_MIDDLE_NAME),
                                 r.get(PEOPLE.LAST_NAME), r.get(P_SUFFIX),
                                 r.get(PEOPLE.DATE_OF_BIRTH), r.get(DATE_OF_DEATH)))
-                        .build());
+                        .build();
+                });
 
         // Merge children lists, dedupe by personId
         Map<Long, DTOs.PersonRelDto> children = new LinkedHashMap<>();

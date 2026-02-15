@@ -8,10 +8,9 @@ export function middleware(req: NextRequest) {
   const isPublic = PUBLIC.some((p) => pathname === p || pathname.startsWith(p));
   if (isPublic) return NextResponse.next();
 
-  // Check for session marker cookie set by the frontend after successful login.
-  // The actual auth session (JSESSIONID) lives on the backend domain and isn't
-  // visible to the frontend middleware in cross-origin deployments.
-  const hasSession = req.cookies.has('sf_sess');
+  // With Front Door routing both frontend and backend under the same domain,
+  // the JSESSIONID cookie is visible to the middleware directly.
+  const hasSession = req.cookies.has('JSESSIONID');
 
   if (!hasSession) {
     const url = req.nextUrl.clone();
@@ -32,6 +31,6 @@ export const config = {
      * - _next (Next.js internals)
      * - images, favicon (static assets)
      */
-    '/((?!api|.swa|_next|images|favicon.ico).*)',
+    '/((?!api|_next|images|favicon.ico).*)',
   ],
 };

@@ -3,7 +3,7 @@ import type { AssetUploadResponse, AssetKind } from './types';
 export const API_BASE =
   (process.env.NEXT_PUBLIC_API_BASE &&
     process.env.NEXT_PUBLIC_API_BASE.replace(/\/+$/, '')) ||
-  'http://localhost:8080';
+  '';
 
 export type JsonInit = Omit<RequestInit, 'body'> & { body?: unknown };
 

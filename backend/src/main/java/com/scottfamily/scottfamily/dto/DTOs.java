@@ -149,6 +149,14 @@ public class DTOs {
             String createdAt
     ) {}
 
+    /** Info about one spouse relationship: the spouse node + which children belong to this couple. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record SpouseInfoDto(
+            FamilyNodeDto spouse,    // null when spouseRefId is used instead
+            List<Long> childIds,     // IDs of children from this relationship
+            Long spouseRefId         // cross-link: spouse already rendered elsewhere in tree
+    ) {}
+
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record FamilyNodeDto(
             Long id,
@@ -158,7 +166,7 @@ public class DTOs {
             List<FamilyNodeDto> children,
             String avatarUrl,
             Long userId,
-            FamilyNodeDto spouse,
+            List<SpouseInfoDto> spouses,  // ordered list of spouses (empty list = none)
             Boolean deceased,
             String parentRelation   // e.g. BIOLOGICAL_FATHER, FOSTER_MOTHER, STEP_FATHER, …
     ) {}

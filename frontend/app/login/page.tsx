@@ -29,7 +29,7 @@ export default function LoginPage() {
     setMsg(null);
     setLoading(true);
     try {
-      const resp = await fetch(`${(process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8080').replace(/\/+$/, '')}/api/auth/login`, {
+      const resp = await fetch(`${(process.env.NEXT_PUBLIC_API_BASE || '').replace(/\/+$/, '')}/api/auth/login`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -77,9 +77,6 @@ export default function LoginPage() {
 
       const profile = await resp.json();
       localStorage.setItem('profile', JSON.stringify(profile));
-      // Set a session marker cookie on the frontend domain so middleware knows we're logged in.
-      // The actual auth session (JSESSIONID) lives on the backend domain.
-      document.cookie = 'sf_sess=1; path=/; max-age=86400; SameSite=Lax; Secure';
       window.dispatchEvent(new Event('profile-updated'));
       router.replace(next);
     } catch (err: unknown) {

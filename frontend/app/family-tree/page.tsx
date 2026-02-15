@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
   Box, CircularProgress, Typography, Link as MUILink, IconButton, Tooltip,
-  TextField, InputAdornment, Chip,
+  TextField, InputAdornment, Chip, Dialog, DialogTitle, DialogContent,
+  DialogActions, Button, Stack, Autocomplete, MenuItem,
 } from '@mui/material';
 import FullscreenIcon from '@mui/icons-material/Fullscreen';
 import FullscreenExitIcon from '@mui/icons-material/FullscreenExit';
@@ -11,9 +12,17 @@ import SearchIcon from '@mui/icons-material/Search';
 import CloseIcon from '@mui/icons-material/Close';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import PersonAddIcon from '@mui/icons-material/PersonAdd';
+import CenterFocusStrongIcon from '@mui/icons-material/CenterFocusStrong';
 import NextLink from 'next/link';
 import { apiFetch } from '../lib/api';
 import * as d3 from 'd3';
+
+type SpouseInfoDto = {
+  spouse?: FamilyNodeDto | null;
+  childIds: number[];
+  spouseRefId?: number | null;
+};
 
 type FamilyNodeDto = {
   id: number;
@@ -23,7 +32,7 @@ type FamilyNodeDto = {
   children: FamilyNodeDto[];
   avatarUrl?: string | null;
   userId?: number | null;
-  spouse?: FamilyNodeDto | null;
+  spouses: SpouseInfoDto[];   // ordered list of spouse-groups (empty = none)
   deceased?: boolean;
   parentRelation?: string | null;
 };
@@ -60,18 +69,50 @@ function flattenNodes(
 ): FlatNode[] {
   const flat: FlatNode[] = [];
   for (const n of nodes) {
+    const sc = n.data.spouses?.length ?? 0;
     flat.push({ id: n.data.id, name: n.data.name, idPath: n.idPath, x: n.x, y: n.y });
-    if (n.data.spouse) {
-      flat.push({
-        id: n.data.spouse.id,
-        name: n.data.spouse.name,
-        idPath: n.idPath + '-spouse',
-        x: n.x + (NODE_W + COUPLE_GAP) / 2,
-        y: n.y,
-      });
+    if (sc > 0) {
+      for (let i = 0; i < sc; i++) {
+        const sp = n.data.spouses[i].spouse;
+        if (!sp) continue;
+        const offset = spouseOffset(sc, i);
+        flat.push({
+          id: sp.id, name: sp.name,
+          idPath: n.idPath + `-spouse-${i}`,
+          x: n.x + offset,
+          y: n.y,
+        });
+      }
     }
   }
   return flat;
+}
+
+/** Compute x-offset for the i-th spouse relative to the d3 node center */
+function spouseOffset(spouseCount: number, index: number): number {
+  if (spouseCount === 1) {
+    // Current: person left, spouse right
+    return (NODE_W + COUPLE_GAP);
+  }
+  if (spouseCount === 2) {
+    // Person center, spouse0 left, spouse1 right
+    return index === 0 ? -(NODE_W + COUPLE_GAP) : (NODE_W + COUPLE_GAP);
+  }
+  // 3+: person leftmost, spouses in a row to the right
+  return (index + 1) * (NODE_W + COUPLE_GAP);
+}
+
+/** Compute x-offset for the primary person when they have spouses */
+function personOffset(spouseCount: number): number {
+  if (spouseCount === 1) return -(NODE_W + COUPLE_GAP) / 2;
+  if (spouseCount === 2) return 0;  // person centered
+  return 0;  // 3+: person on the left edge (at d3 x)
+}
+
+/** Total "unit width" used in d3 separation for a node with N spouses */
+function clusterWidth(spouseCount: number): number {
+  if (spouseCount <= 1) return spouseCount === 0 ? 1 : 2;
+  return 1 + spouseCount;
 }
 
 /* ---- format dates ---- */
@@ -93,6 +134,8 @@ export default function FamilyTreePage() {
   const [loading, setLoading] = useState(true);
   const [myPersonId, setMyPersonId] = useState<number | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [addPersonOpen, setAddPersonOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   /* ---------- search state ---------- */
@@ -120,6 +163,8 @@ export default function FamilyTreePage() {
       if (raw) {
         const p = JSON.parse(raw);
         if (p?.personId) setMyPersonId(p.personId);
+        const role: string = p?.userRole || '';
+        setIsAdmin(role === 'ROLE_ADMIN' || role === 'ADMIN');
       }
     } catch { /* ignore */ }
   }, []);
@@ -190,6 +235,14 @@ export default function FamilyTreePage() {
           <Typography variant="h5" sx={{ fontWeight: 800, color: 'var(--foreground)' }}>Family Tree</Typography>
 
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            {/* Admin: add person */}
+            {isAdmin && (
+              <Tooltip title="Add Person">
+                <IconButton onClick={() => setAddPersonOpen(true)} size="small" sx={{ color: 'var(--color-primary-500)' }}>
+                  <PersonAddIcon />
+                </IconButton>
+              </Tooltip>
+            )}
             {/* Search toggle */}
             <Tooltip title="Search (Ctrl+F)">
               <IconButton onClick={() => setSearchOpen(o => !o)} size="small" sx={{ color: 'text.secondary' }}>
@@ -216,6 +269,23 @@ export default function FamilyTreePage() {
           setSearchOpen={setSearchOpen}
         />
       </Box>
+
+      {/* Admin: Add Person Dialog */}
+      {isAdmin && (
+        <AddPersonDialog
+          open={addPersonOpen}
+          onClose={() => setAddPersonOpen(false)}
+          onCreated={() => {
+            setAddPersonOpen(false);
+            // Reload tree data
+            setLoading(true);
+            apiFetch<FamilyNodeDto>('/api/family/tree', { method: 'GET' })
+              .then(setRoot)
+              .catch(console.error)
+              .finally(() => setLoading(false));
+          }}
+        />
+      )}
     </Box>
   );
 }
@@ -243,6 +313,8 @@ function SvgTree({
   const zoomRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
   const [viewport, setViewport] = useState({ width: 1000, height: 600 });
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const [initialCenterDone, setInitialCenterDone] = useState(false);
+  const [highlightIds, setHighlightIds] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     const handle = () => {
@@ -261,14 +333,31 @@ function SvgTree({
   }, [fullscreen]);
 
   /* Build d3 hierarchy */
-  const { nodes, linkGroups, coupleLinks, translate } = useMemo(() => {
-    const hroot = d3.hierarchy<FamilyNodeDto>(root, d => d?.children || []);
+  const { nodes, linkGroups, coupleLinks, crossLinks, translate } = useMemo(() => {
+    // Reorder children of multi-spouse nodes so D3 places them
+    // left-to-right matching the spouse layout:
+    //   2 spouses: [spouse0(left) kids, solo(center) kids, spouse1(right) kids]
+    function reorderChildren(node: FamilyNodeDto): FamilyNodeDto {
+      const sc = node.spouses?.length ?? 0;
+      let kids = node.children;
+      if (sc === 2) {
+        const s0 = new Set(node.spouses[0].childIds ?? []);
+        const s1 = new Set(node.spouses[1].childIds ?? []);
+        const g0 = kids.filter(c => s0.has(c.id));
+        const solo = kids.filter(c => !s0.has(c.id) && !s1.has(c.id));
+        const g1 = kids.filter(c => s1.has(c.id));
+        kids = [...g0, ...solo, ...g1];
+      }
+      return { ...node, children: kids.map(reorderChildren) };
+    }
+    const ordered = reorderChildren(root);
+    const hroot = d3.hierarchy<FamilyNodeDto>(ordered, d => d?.children || []);
 
     const treeLayout = d3.tree<FamilyNodeDto>()
       .nodeSize([NODE_W + H_GAP, NODE_H + V_GAP])
       .separation((a, b) => {
-        const aw = a.data.spouse ? 2 : 1;
-        const bw = b.data.spouse ? 2 : 1;
+        const aw = clusterWidth(a.data.spouses?.length ?? 0);
+        const bw = clusterWidth(b.data.spouses?.length ?? 0);
         return (aw + bw) / 2;
       });
 
@@ -282,21 +371,129 @@ function SvgTree({
       idPath: computeIdPath(d),
     }));
 
-    const groups = new Map<string, { source: { x: number; y: number }; targets: { x: number; y: number }[] }>();
-    for (const lk of laid.links()) {
-      const sKey = computeIdPath(lk.source);
-      if (!groups.has(sKey)) groups.set(sKey, { source: { x: lk.source.x, y: lk.source.y }, targets: [] });
-      groups.get(sKey)!.targets.push({ x: lk.target.x, y: lk.target.y });
+    // Position map: person id → absolute {x, y}
+    const posById = new Map<number, { x: number; y: number }>();
+    for (const nn of n) {
+      const sc = nn.data.spouses?.length ?? 0;
+      if (sc === 0) {
+        posById.set(nn.data.id, { x: nn.x, y: nn.y });
+      } else {
+        // Person position
+        const pOff = personOffset(sc);
+        posById.set(nn.data.id, { x: nn.x + pOff, y: nn.y });
+        // Each spouse position
+        for (let i = 0; i < sc; i++) {
+          const sp = nn.data.spouses[i].spouse;
+          if (sp) {
+            const sOff = spouseOffset(sc, i);
+            posById.set(sp.id, { x: nn.x + pOff + sOff, y: nn.y });
+          }
+        }
+      }
     }
 
-    const cl = n.filter(nn => nn.data.spouse).map(nn => ({
-      x: nn.x, y: nn.y, key: `couple-${nn.data.id}`,
-    }));
+    // Build link groups: map parent → child connectors
+    // For multi-spouse nodes, split into per-spouse-group sub-combs.
+    // Two-pass: first collect children per group with the couple-connector
+    // midpoint as anchor, then finalize into link groups.
+    type LinkGroup = { source: { x: number; y: number }; targets: { x: number; y: number }[]; stagger?: number };
+    const groups = new Map<string, LinkGroup>();
+    const multiGroupData = new Map<string, { targets: { x: number; y: number }[]; sourceY: number; anchorX: number; parentKey: string }>();
+
+    for (const lk of laid.links()) {
+      const parentData = lk.source.data;
+      const childId = lk.target.data.id;
+      const sc = parentData.spouses?.length ?? 0;
+
+      if (sc >= 2) {
+        const pOff = personOffset(sc);
+        let groupSuffix = '-solo';
+        let anchorX = lk.source.x + pOff; // default: person center (solo kids)
+
+        for (let i = 0; i < sc; i++) {
+          if (parentData.spouses[i].childIds?.includes(childId)) {
+            groupSuffix = `-sg${i}`;
+            // Anchor at midpoint between person center and spouse center
+            const personX = lk.source.x + pOff;
+            const spouseX = personX + spouseOffset(sc, i);
+            anchorX = (personX + spouseX) / 2;
+            break;
+          }
+        }
+        const fullKey = computeIdPath(lk.source) + groupSuffix;
+        if (!multiGroupData.has(fullKey)) {
+          multiGroupData.set(fullKey, { targets: [], sourceY: lk.source.y, anchorX, parentKey: computeIdPath(lk.source) });
+        }
+        multiGroupData.get(fullKey)!.targets.push({ x: lk.target.x, y: lk.target.y });
+      } else {
+        // 0 or 1 spouse: use d3's source x directly
+        const sKey = computeIdPath(lk.source);
+        if (!groups.has(sKey)) {
+          groups.set(sKey, { source: { x: lk.source.x, y: lk.source.y }, targets: [] });
+        }
+        groups.get(sKey)!.targets.push({ x: lk.target.x, y: lk.target.y });
+      }
+    }
+
+    // Pass 2: assign stagger levels (left-to-right) so horizontal bars don't overlap
+    const byParent = new Map<string, { key: string; anchorX: number }[]>();
+    for (const [key, data] of multiGroupData) {
+      if (!byParent.has(data.parentKey)) byParent.set(data.parentKey, []);
+      byParent.get(data.parentKey)!.push({ key, anchorX: data.anchorX });
+    }
+    for (const siblings of byParent.values()) {
+      siblings.sort((a, b) => a.anchorX - b.anchorX); // left to right
+      const count = siblings.length;
+      siblings.forEach((s, idx) => {
+        const data = multiGroupData.get(s.key)!;
+        // Leftmost gets highest stagger (most offset up), rightmost gets 0 (default)
+        const stagger = count - 1 - idx;
+        groups.set(s.key, { source: { x: data.anchorX, y: data.sourceY }, targets: data.targets, stagger });
+      });
+    }
+
+    // Couple connector lines
+    const cl: { x1: number; y1: number; x2: number; y2: number; key: string }[] = [];
+    for (const nn of n) {
+      const sc = nn.data.spouses?.length ?? 0;
+      if (sc === 0) continue;
+      const pOff = personOffset(sc);
+      const personX = nn.x + pOff;
+      for (let i = 0; i < sc; i++) {
+        const sp = nn.data.spouses[i].spouse;
+        if (!sp) continue;
+        const sOff = spouseOffset(sc, i);
+        const spouseX = personX + sOff;
+        // connector from person edge to spouse edge
+        const x1 = Math.min(personX, spouseX) + NODE_W / 2;
+        const x2 = Math.max(personX, spouseX) - NODE_W / 2;
+        cl.push({ x1, y1: nn.y, x2, y2: nn.y, key: `couple-${nn.data.id}-${sp.id}` });
+      }
+    }
+
+    // Cross-links: nodes with spouseRefId
+    const crossLks: { fromX: number; fromY: number; toX: number; toY: number; key: string }[] = [];
+    for (const nn of n) {
+      const sc = nn.data.spouses?.length ?? 0;
+      for (let i = 0; i < sc; i++) {
+        const refId = nn.data.spouses[i].spouseRefId;
+        if (!refId) continue;
+        const target = posById.get(refId);
+        if (!target) continue;
+        const from = posById.get(nn.data.id) ?? { x: nn.x, y: nn.y };
+        crossLks.push({
+          fromX: from.x, fromY: from.y,
+          toX: target.x, toY: target.y,
+          key: `xlink-${nn.data.id}-${refId}`,
+        });
+      }
+    }
 
     return {
       nodes: n,
       linkGroups: Array.from(groups.entries()).map(([key, g]) => ({ key, ...g })),
       coupleLinks: cl,
+      crossLinks: crossLks,
       translate: { x: 60, y: 40 },
     };
   }, [root]);
@@ -339,6 +536,52 @@ function SvgTree({
 
     return () => { svg.on('.zoom', null); };
   }, [translate]);
+
+  /* Find Marcus Scott's node position and IDs for centering & highlight */
+  const marcusInfo = useMemo(() => {
+    for (const n of nodes) {
+      if (n.data.name?.toLowerCase().includes('marcus') && n.data.name?.toLowerCase().includes('scott')) {
+        const ids = [n.data.id];
+        for (const si of (n.data.spouses ?? [])) {
+          if (si.spouse) ids.push(si.spouse.id);
+        }
+        return { x: n.x, y: n.y, ids };
+      }
+      for (const si of (n.data.spouses ?? [])) {
+        if (si.spouse?.name?.toLowerCase().includes('marcus') && si.spouse?.name?.toLowerCase().includes('scott')) {
+          const ids = [n.data.id, si.spouse.id];
+          return { x: n.x, y: n.y, ids };
+        }
+      }
+    }
+    return null;
+  }, [nodes]);
+  const marcusNode = marcusInfo ? { x: marcusInfo.x, y: marcusInfo.y } : null;
+
+  /* Center on Marcus & Caroline on initial load */
+  const centerOnMarcus = useCallback((animate = true) => {
+    if (!marcusNode || !svgRef.current || !zoomRef.current) return;
+    const svg = d3.select(svgRef.current);
+    const scale = 0.9;
+    const tx = viewport.width / 2 - marcusNode.x * scale;
+    const ty = viewport.height / 2 - marcusNode.y * scale;
+    if (animate) {
+      svg.transition().duration(500)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .call(zoomRef.current.transform as any, d3.zoomIdentity.translate(tx, ty).scale(scale));
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      svg.call(zoomRef.current.transform as any, d3.zoomIdentity.translate(tx, ty).scale(scale));
+    }
+  }, [marcusNode, viewport]);
+
+  useEffect(() => {
+    if (!initialCenterDone && marcusNode && svgRef.current && zoomRef.current) {
+      // Small delay to ensure layout has settled
+      const t = setTimeout(() => { centerOnMarcus(false); setInitialCenterDone(true); }, 100);
+      return () => clearTimeout(t);
+    }
+  }, [initialCenterDone, marcusNode, centerOnMarcus]);
 
   /* Center on current match */
   const centerOnMatch = useCallback((idx: number) => {
@@ -406,8 +649,50 @@ function SvgTree({
         </Box>
       )}
 
+      {/* Re-center button */}
+      {marcusNode && (
+        <Tooltip title="Center on Marcus & Caroline Scott">
+          <IconButton
+            onClick={() => {
+              centerOnMarcus(true);
+              if (marcusInfo) {
+                setHighlightIds(new Set(marcusInfo.ids));
+                setTimeout(() => setHighlightIds(new Set()), 1800);
+              }
+            }}
+            size="small"
+            sx={{
+              position: 'absolute',
+              bottom: 16,
+              right: 16,
+              zIndex: 10,
+              bgcolor: 'background.paper',
+              border: '1px solid',
+              borderColor: 'divider',
+              boxShadow: 2,
+              '&:hover': { bgcolor: 'var(--color-primary-50)' },
+            }}
+          >
+            <CenterFocusStrongIcon fontSize="small" sx={{ color: 'var(--color-primary-600)' }} />
+          </IconButton>
+        </Tooltip>
+      )}
+
       <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, overflow: 'hidden' }}>
         <svg ref={svgRef} width="100%" height={viewport.height} viewBox={`0 0 ${viewport.width} ${viewport.height}`}>
+          <defs>
+            <marker id="crosslink-arrow" viewBox="0 0 10 10" refX="9" refY="5"
+              markerWidth={6} markerHeight={6} orient="auto-start-reverse" fill="#90a4ae">
+              <path d="M 0 0 L 10 5 L 0 10 z" />
+            </marker>
+            <style>{`
+              @keyframes node-highlight-pulse {
+                0%   { stroke-opacity: 1; fill-opacity: 1; }
+                50%  { stroke-opacity: 0.4; fill-opacity: 0.6; }
+                100% { stroke-opacity: 1; fill-opacity: 1; }
+              }
+            `}</style>
+          </defs>
           <rect x={0} y={0} width={viewport.width} height={viewport.height} fill="#fafafa" />
           <g ref={gRef}>
             {/* Comb-style connectors */}
@@ -415,13 +700,17 @@ function SvgTree({
               {linkGroups.map(lg => {
                 const sy = lg.source.y + NODE_H / 2;
                 const ty = lg.targets[0].y - NODE_H / 2;
-                const midY = (sy + ty) / 2;
-                const minTx = Math.min(...lg.targets.map(t => t.x));
-                const maxTx = Math.max(...lg.targets.map(t => t.x));
+                const baseMidY = (sy + ty) / 2;
+                const STAGGER_STEP = 14;
+                const midY = baseMidY - (lg.stagger ?? 0) * STAGGER_STEP;
+                const ax = lg.source.x;
+                const allX = [ax, ...lg.targets.map(t => t.x)];
+                const barLeft = Math.min(...allX);
+                const barRight = Math.max(...allX);
                 return (
                   <g key={lg.key}>
-                    <line x1={lg.source.x} y1={sy} x2={lg.source.x} y2={midY} />
-                    {lg.targets.length > 1 && <line x1={minTx} y1={midY} x2={maxTx} y2={midY} />}
+                    <line x1={ax} y1={sy} x2={ax} y2={midY} />
+                    {barLeft < barRight && <line x1={barLeft} y1={midY} x2={barRight} y2={midY} />}
                     {lg.targets.map((t, i) => <line key={i} x1={t.x} y1={midY} x2={t.x} y2={ty} />)}
                   </g>
                 );
@@ -431,28 +720,49 @@ function SvgTree({
             {/* Couple connectors */}
             <g stroke="#c8ccd2" strokeWidth={1.2}>
               {coupleLinks.map(cl => (
-                <line key={cl.key} x1={cl.x - COUPLE_GAP / 2} y1={cl.y} x2={cl.x + COUPLE_GAP / 2} y2={cl.y} />
+                <line key={cl.key} x1={cl.x1} y1={cl.y1} x2={cl.x2} y2={cl.y2} />
               ))}
+            </g>
+
+            {/* Cross-links: dashed curved connector to a spouse placed elsewhere */}
+            <g fill="none" stroke="#90a4ae" strokeWidth={1.4} strokeDasharray="6 4">
+              {crossLinks.map(xl => {
+                // Curved path: go up from source, arc over, come down to target
+                const dx = xl.toX - xl.fromX;
+                const dy = xl.toY - xl.fromY;
+                const cpOffset = Math.max(60, Math.abs(dy) * 0.4 + 30);
+                // Use a quadratic Bezier that arcs above/below depending on direction
+                const cpY = Math.min(xl.fromY, xl.toY) - cpOffset;
+                const path = `M ${xl.fromX} ${xl.fromY - NODE_H / 2}`
+                  + ` Q ${xl.fromX + dx * 0.5} ${cpY}, ${xl.toX} ${xl.toY - NODE_H / 2}`;
+                return <path key={xl.key} d={path} markerEnd="url(#crosslink-arrow)" />;
+              })}
             </g>
 
             {/* Nodes */}
             <g>
-              {nodes.map(n => (
-                <g key={n.idPath} transform={`translate(${n.x},${n.y})`}>
-                  {n.data.spouse ? (
-                    <>
-                      <g transform={`translate(${-(NODE_W + COUPLE_GAP) / 2},0)`}>
-                        <NodeBox node={n.data} myPersonId={myPersonId} isMatch={matchIdSet.has(n.data.id)} isActive={activeMatchId === n.data.id} />
-                      </g>
-                      <g transform={`translate(${(NODE_W + COUPLE_GAP) / 2},0)`}>
-                        <NodeBox node={n.data.spouse} myPersonId={myPersonId} isMatch={matchIdSet.has(n.data.spouse.id)} isActive={activeMatchId === n.data.spouse.id} />
-                      </g>
-                    </>
-                  ) : (
-                    <NodeBox node={n.data} myPersonId={myPersonId} isMatch={matchIdSet.has(n.data.id)} isActive={activeMatchId === n.data.id} />
-                  )}
-                </g>
-              ))}
+              {nodes.map(n => {
+                const sc = n.data.spouses?.length ?? 0;
+                const pOff = personOffset(sc);
+                return (
+                  <g key={n.idPath} transform={`translate(${n.x},${n.y})`}>
+                    {/* Primary person */}
+                    <g transform={`translate(${pOff},0)`}>
+                      <NodeBox node={n.data} myPersonId={myPersonId} isMatch={matchIdSet.has(n.data.id)} isActive={activeMatchId === n.data.id} isHighlighted={highlightIds.has(n.data.id)} />
+                    </g>
+                    {/* Spouse nodes */}
+                    {sc > 0 && n.data.spouses.map((si, i) => {
+                      if (!si.spouse) return null;
+                      const sOff = spouseOffset(sc, i);
+                      return (
+                        <g key={`sp-${si.spouse.id}`} transform={`translate(${pOff + sOff},0)`}>
+                          <NodeBox node={si.spouse} myPersonId={myPersonId} isMatch={matchIdSet.has(si.spouse.id)} isActive={activeMatchId === si.spouse.id} isHighlighted={highlightIds.has(si.spouse.id)} />
+                        </g>
+                      );
+                    })}
+                  </g>
+                );
+              })}
             </g>
           </g>
         </svg>
@@ -463,8 +773,8 @@ function SvgTree({
 
 /* ==================== Node Card ==================== */
 
-function NodeBox({ node, myPersonId, isMatch, isActive }: {
-  node: FamilyNodeDto; myPersonId: number | null; isMatch: boolean; isActive: boolean;
+function NodeBox({ node, myPersonId, isMatch, isActive, isHighlighted }: {
+  node: FamilyNodeDto; myPersonId: number | null; isMatch: boolean; isActive: boolean; isHighlighted?: boolean;
 }) {
   const name = node.name || '(Unnamed)';
   const isDeceased = !!node.deceased;
@@ -481,9 +791,9 @@ function NodeBox({ node, myPersonId, isMatch, isActive }: {
 
   const textX = avatarCx + AVATAR_R + 10;
 
-  const rectFill = isActive ? '#fff9c4' : isMatch ? '#fffde7' : isDeceased ? '#f5f5f5' : '#fff';
-  const rectStroke = isActive ? '#f9a825' : isMatch ? '#fdd835' : isDeceased ? '#bdbdbd' : '#ced3da';
-  const strokeW = isActive ? 2.5 : isMatch ? 2 : 1;
+  const rectFill = isHighlighted ? '#e3f2fd' : isActive ? '#fff9c4' : isMatch ? '#fffde7' : isDeceased ? '#f5f5f5' : '#fff';
+  const rectStroke = isHighlighted ? '#1976d2' : isActive ? '#f9a825' : isMatch ? '#fdd835' : isDeceased ? '#bdbdbd' : '#ced3da';
+  const strokeW = isHighlighted ? 3 : isActive ? 2.5 : isMatch ? 2 : 1;
 
   /* Relation badge */
   const rel = node.parentRelation;
@@ -493,7 +803,8 @@ function NodeBox({ node, myPersonId, isMatch, isActive }: {
     <g style={isDeceased && !isMatch ? { opacity: 0.75 } : undefined}>
       {/* Card */}
       <rect x={x} y={top} width={NODE_W} height={NODE_H} rx={NODE_RX} ry={NODE_RX}
-        fill={rectFill} stroke={rectStroke} strokeWidth={strokeW} />
+        fill={rectFill} stroke={rectStroke} strokeWidth={strokeW}
+        style={isHighlighted ? { animation: 'node-highlight-pulse 0.6s ease-in-out 3' } : undefined} />
 
       {/* Avatar */}
       <clipPath id={`clip-${node.id}`}>
@@ -561,6 +872,186 @@ function NodeBox({ node, myPersonId, isMatch, isActive }: {
         </g>
       )}
     </g>
+  );
+}
+
+/* ==================== Add Person Dialog ==================== */
+
+type ParentOption = { personId: number; displayName: string };
+
+const RELATION_TYPES = [
+  { value: 'BIOLOGICAL', label: 'Biological' },
+  { value: 'ADOPTIVE', label: 'Adoptive' },
+  { value: 'STEP', label: 'Step' },
+  { value: 'FOSTER', label: 'Foster' },
+  { value: 'GUARDIAN', label: 'Guardian' },
+];
+
+function AddPersonDialog({ open, onClose, onCreated }: {
+  open: boolean;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [middleName, setMiddleName] = useState('');
+  const [suffix, setSuffix] = useState('');
+  const [dob, setDob] = useState('');
+  const [dod, setDod] = useState('');
+  const [bio, setBio] = useState('');
+
+  // Parent pickers
+  const [fatherQuery, setFatherQuery] = useState('');
+  const [motherQuery, setMotherQuery] = useState('');
+  const [fatherOptions, setFatherOptions] = useState<ParentOption[]>([]);
+  const [motherOptions, setMotherOptions] = useState<ParentOption[]>([]);
+  const [father, setFather] = useState<ParentOption | null>(null);
+  const [mother, setMother] = useState<ParentOption | null>(null);
+  const [fatherRelation, setFatherRelation] = useState('BIOLOGICAL');
+  const [motherRelation, setMotherRelation] = useState('BIOLOGICAL');
+
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  // Search parents
+  useEffect(() => {
+    if (fatherQuery.length < 2) { setFatherOptions([]); return; }
+    const t = setTimeout(async () => {
+      try {
+        const results = await apiFetch<ParentOption[]>(`/api/people/search?q=${encodeURIComponent(fatherQuery)}&limit=10`);
+        setFatherOptions(results);
+      } catch { /* ignore */ }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [fatherQuery]);
+
+  useEffect(() => {
+    if (motherQuery.length < 2) { setMotherOptions([]); return; }
+    const t = setTimeout(async () => {
+      try {
+        const results = await apiFetch<ParentOption[]>(`/api/people/search?q=${encodeURIComponent(motherQuery)}&limit=10`);
+        setMotherOptions(results);
+      } catch { /* ignore */ }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [motherQuery]);
+
+  const reset = () => {
+    setFirstName(''); setLastName(''); setMiddleName(''); setSuffix('');
+    setDob(''); setDod(''); setBio('');
+    setFather(null); setMother(null);
+    setFatherRelation('BIOLOGICAL'); setMotherRelation('BIOLOGICAL');
+    setFatherQuery(''); setMotherQuery('');
+    setError('');
+  };
+
+  const handleSubmit = async () => {
+    if (!firstName.trim() || !lastName.trim()) {
+      setError('First and last name are required.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      await apiFetch('/api/people', {
+        method: 'POST',
+        body: {
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          middleName: middleName.trim() || null,
+          suffix: suffix.trim() || null,
+          dateOfBirth: dob || null,
+          dateOfDeath: dod || null,
+          bio: bio.trim() || null,
+          fatherId: father?.personId ?? null,
+          motherId: mother?.personId ?? null,
+          fatherRelation: father ? `${fatherRelation}_FATHER` : null,
+          motherRelation: mother ? `${motherRelation}_MOTHER` : null,
+        },
+      });
+      reset();
+      onCreated();
+    } catch (e: unknown) {
+      setError((e as Error)?.message || 'Failed to create person.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle sx={{ fontWeight: 700 }}>Add Person</DialogTitle>
+      <DialogContent>
+        <Stack spacing={2} sx={{ mt: 1 }}>
+          {error && <Typography color="error" variant="body2">{error}</Typography>}
+
+          <Stack direction="row" spacing={2}>
+            <TextField label="First Name" value={firstName} onChange={e => setFirstName(e.target.value)} required fullWidth size="small" />
+            <TextField label="Last Name" value={lastName} onChange={e => setLastName(e.target.value)} required fullWidth size="small" />
+          </Stack>
+          <Stack direction="row" spacing={2}>
+            <TextField label="Middle Name" value={middleName} onChange={e => setMiddleName(e.target.value)} fullWidth size="small" />
+            <TextField label="Suffix" value={suffix} onChange={e => setSuffix(e.target.value)} placeholder="Jr., Sr., III" fullWidth size="small" />
+          </Stack>
+          <Stack direction="row" spacing={2}>
+            <TextField label="Date of Birth" type="date" value={dob} onChange={e => setDob(e.target.value)} fullWidth size="small" slotProps={{ inputLabel: { shrink: true } }} />
+            <TextField label="Date of Death" type="date" value={dod} onChange={e => setDod(e.target.value)} fullWidth size="small" slotProps={{ inputLabel: { shrink: true } }} />
+          </Stack>
+
+          {/* Father picker */}
+          <Stack direction="row" spacing={2} alignItems="flex-start">
+            <Autocomplete
+              sx={{ flex: 1 }}
+              options={fatherOptions}
+              getOptionLabel={o => o.displayName}
+              value={father}
+              onChange={(_, v) => setFather(v)}
+              onInputChange={(_, v) => setFatherQuery(v)}
+              isOptionEqualToValue={(a, b) => a.personId === b.personId}
+              noOptionsText={fatherQuery.length < 2 ? 'Type to search…' : 'No results'}
+              renderInput={params => <TextField {...params} label="Father" size="small" />}
+            />
+            <TextField
+              select label="Relation" size="small" sx={{ width: 140 }}
+              value={fatherRelation} onChange={e => setFatherRelation(e.target.value)}
+            >
+              {RELATION_TYPES.map(r => <MenuItem key={r.value} value={r.value}>{r.label}</MenuItem>)}
+            </TextField>
+          </Stack>
+
+          {/* Mother picker */}
+          <Stack direction="row" spacing={2} alignItems="flex-start">
+            <Autocomplete
+              sx={{ flex: 1 }}
+              options={motherOptions}
+              getOptionLabel={o => o.displayName}
+              value={mother}
+              onChange={(_, v) => setMother(v)}
+              onInputChange={(_, v) => setMotherQuery(v)}
+              isOptionEqualToValue={(a, b) => a.personId === b.personId}
+              noOptionsText={motherQuery.length < 2 ? 'Type to search…' : 'No results'}
+              renderInput={params => <TextField {...params} label="Mother" size="small" />}
+            />
+            <TextField
+              select label="Relation" size="small" sx={{ width: 140 }}
+              value={motherRelation} onChange={e => setMotherRelation(e.target.value)}
+            >
+              {RELATION_TYPES.map(r => <MenuItem key={r.value} value={r.value}>{r.label}</MenuItem>)}
+            </TextField>
+          </Stack>
+
+          <TextField label="Bio" value={bio} onChange={e => setBio(e.target.value)} multiline rows={3} fullWidth size="small" />
+        </Stack>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button onClick={() => { reset(); onClose(); }} disabled={saving}>Cancel</Button>
+        <Button variant="contained" onClick={handleSubmit} disabled={saving}
+          sx={{ bgcolor: 'var(--color-primary-500)', '&:hover': { bgcolor: 'var(--color-primary-600)' } }}
+        >
+          {saving ? 'Adding…' : 'Add Person'}
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }
 
