@@ -72,11 +72,24 @@ jobs:
                 DISABLE_ORYX_BUILD=true \
                 HOSTNAME=0.0.0.0 \
                 PORT=8080 \
-                WEBSITES_CONTAINER_START_TIME_LIMIT=600
+                WEBSITES_CONTAINER_START_TIME_LIMIT=600 \
+                WEBSITE_SCM_COMMAND_IDLE_TIMEOUT=600
             az webapp config set \
               --name scott-family-web-frontend \
               --resource-group scott-family \
               --startup-file "node server.js"
+
+      - name: Remove Oryx artifacts before deploy
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            # Delete leftover Oryx files so --clean true doesn't choke on large tar.gz
+            az rest --method DELETE \
+              --url "https://scott-family-web-frontend.scm.azurewebsites.net/api/vfs/site/wwwroot/node_modules.tar.gz" \
+              --headers "If-Match=*" || true
+            az rest --method DELETE \
+              --url "https://scott-family-web-frontend.scm.azurewebsites.net/api/vfs/site/wwwroot/oryx-manifest.toml" \
+              --headers "If-Match=*" || true
 
       - name: Package deployment
         working-directory: frontend
@@ -93,18 +106,6 @@ jobs:
               --type zip \
               --clean true \
               --timeout 600
-
-      - name: Remove Oryx artifacts
-        uses: azure/cli@v2
-        with:
-          inlineScript: |
-            # Delete leftover Oryx files via Kudu VFS API
-            az rest --method DELETE \
-              --url "https://scott-family-web-frontend.scm.azurewebsites.net/api/vfs/site/wwwroot/node_modules.tar.gz" \
-              --headers "If-Match=*" || true
-            az rest --method DELETE \
-              --url "https://scott-family-web-frontend.scm.azurewebsites.net/api/vfs/site/wwwroot/oryx-manifest.toml" \
-              --headers "If-Match=*" || true
 
       - name: Start App Service
         uses: azure/cli@v2
