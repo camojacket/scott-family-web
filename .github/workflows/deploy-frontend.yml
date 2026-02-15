@@ -52,6 +52,14 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_BE9EB462DE124C9CAA5AD7F43FA342C9 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_76946AE868794B248F4E630631AB0D56 }}
 
+      - name: Stop App Service before deploy
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            az webapp stop \
+              --name scott-family-web-frontend \
+              --resource-group scott-family
+
       - name: Set App Service configuration
         uses: azure/cli@v2
         with:
@@ -63,7 +71,8 @@ jobs:
                 SCM_DO_BUILD_DURING_DEPLOYMENT=false \
                 DISABLE_ORYX_BUILD=true \
                 HOSTNAME=0.0.0.0 \
-                PORT=8080
+                PORT=8080 \
+                WEBSITES_CONTAINER_START_TIME_LIMIT=600
             az webapp config set \
               --name scott-family-web-frontend \
               --resource-group scott-family \
@@ -83,5 +92,24 @@ jobs:
               --src-path frontend/deploy.zip \
               --type zip \
               --clean true \
-              --async true \
               --timeout 600
+
+      - name: Remove Oryx artifacts
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            # Delete leftover Oryx files via Kudu VFS API
+            az rest --method DELETE \
+              --url "https://scott-family-web-frontend.scm.azurewebsites.net/api/vfs/site/wwwroot/node_modules.tar.gz" \
+              --headers "If-Match=*" || true
+            az rest --method DELETE \
+              --url "https://scott-family-web-frontend.scm.azurewebsites.net/api/vfs/site/wwwroot/oryx-manifest.toml" \
+              --headers "If-Match=*" || true
+
+      - name: Start App Service
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            az webapp start \
+              --name scott-family-web-frontend \
+              --resource-group scott-family
