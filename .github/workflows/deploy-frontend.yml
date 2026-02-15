@@ -61,10 +61,9 @@ jobs:
               --resource-group scott-family \
               --settings \
                 SCM_DO_BUILD_DURING_DEPLOYMENT=false \
-                WEBSITE_RUN_FROM_PACKAGE=0 \
                 DISABLE_ORYX_BUILD=true \
                 HOSTNAME=0.0.0.0 \
-                PORT=3000
+                PORT=8080
             az webapp config set \
               --name scott-family-web-frontend \
               --resource-group scott-family \
