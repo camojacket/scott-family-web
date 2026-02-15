@@ -58,7 +58,7 @@ jobs:
           inlineScript: |
             az webapp config appsettings set \
               --name scott-family-web-frontend \
-              --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+              --resource-group scott-family \
               --settings \
                 SCM_DO_BUILD_DURING_DEPLOYMENT=false \
                 HOSTNAME=0.0.0.0 \
