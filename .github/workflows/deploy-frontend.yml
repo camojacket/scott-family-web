@@ -83,29 +83,25 @@ jobs:
         uses: azure/cli@v2
         with:
           inlineScript: |
-            # Delete leftover Oryx files so --clean true doesn't choke on large tar.gz
-            az rest --method DELETE \
-              --url "https://scott-family-web-frontend.scm.azurewebsites.net/api/vfs/site/wwwroot/node_modules.tar.gz" \
-              --headers "If-Match=*" || true
-            az rest --method DELETE \
-              --url "https://scott-family-web-frontend.scm.azurewebsites.net/api/vfs/site/wwwroot/oryx-manifest.toml" \
-              --headers "If-Match=*" || true
+            # Delete leftover Oryx files via Kudu command API
+            az webapp log deployment show \
+              --name scott-family-web-frontend \
+              --resource-group scott-family || true
+            # Use Kudu command endpoint which works with OIDC auth
+            az rest --method POST \
+              --url "https://scott-family-web-frontend.scm.azurewebsites.net/api/command" \
+              --headers "Content-Type=application/json" \
+              --body '{"command":"rm -f /home/site/wwwroot/node_modules.tar.gz /home/site/wwwroot/oryx-manifest.toml /home/site/wwwroot/_del_node_modules 2>/dev/null; ls -la /home/site/wwwroot/ | head -20","dir":"/home"}' || true
 
       - name: Package deployment
         working-directory: frontend
         run: cd deploy && zip -r ../deploy.zip .
 
       - name: Deploy to Azure App Service
-        uses: azure/cli@v2
+        uses: azure/webapps-deploy@v3
         with:
-          inlineScript: |
-            az webapp deploy \
-              --name scott-family-web-frontend \
-              --resource-group scott-family \
-              --src-path frontend/deploy.zip \
-              --type zip \
-              --clean true \
-              --timeout 600
+          app-name: scott-family-web-frontend
+          package: frontend/deploy.zip
 
       - name: Start App Service
         uses: azure/cli@v2
