@@ -52,8 +52,21 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_BE9EB462DE124C9CAA5AD7F43FA342C9 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_76946AE868794B248F4E630631AB0D56 }}
 
+      - name: Set App Service configuration
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            az webapp config appsettings set \
+              --name scott-family-web-frontend \
+              --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+              --settings \
+                SCM_DO_BUILD_DURING_DEPLOYMENT=false \
+                HOSTNAME=0.0.0.0 \
+                PORT=8080
+
       - name: Deploy to Azure App Service
         uses: azure/webapps-deploy@v3
         with:
           app-name: 'scott-family-web-frontend'
           package: frontend/deploy
+          startup-command: 'node server.js'
