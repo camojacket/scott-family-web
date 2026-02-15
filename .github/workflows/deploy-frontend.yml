@@ -63,10 +63,22 @@ jobs:
                 SCM_DO_BUILD_DURING_DEPLOYMENT=false \
                 HOSTNAME=0.0.0.0 \
                 PORT=8080
+            az webapp config set \
+              --name scott-family-web-frontend \
+              --resource-group scott-family \
+              --startup-file "node server.js"
+
+      - name: Package deployment
+        working-directory: frontend
+        run: cd deploy && zip -r ../deploy.zip .
 
       - name: Deploy to Azure App Service
-        uses: azure/webapps-deploy@v3
+        uses: azure/cli@v2
         with:
-          app-name: 'scott-family-web-frontend'
-          package: frontend/deploy
-          startup-command: 'node server.js'
+          inlineScript: |
+            az webapp deploy \
+              --name scott-family-web-frontend \
+              --resource-group scott-family \
+              --src-path frontend/deploy.zip \
+              --type zip \
+              --clean true
