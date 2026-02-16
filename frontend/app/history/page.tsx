@@ -1,16 +1,15 @@
-'use client';
-
-import { useEffect, useState, useCallback } from 'react';
-import dynamic from 'next/dynamic';
-import { Box, Button, CircularProgress, Alert } from '@mui/material';
-import EditIcon from '@mui/icons-material/Edit';
-import BlockRendererList from '../components/BlockRenderer';
-import { apiFetch } from '../lib/api';
-import { useFamilyName } from '../lib/FamilyNameContext';
+import type { Metadata } from 'next';
+import { serverFetch, getFamilyLabel } from '../lib/serverFetch';
+import EditablePageContent from '../components/EditablePageContent';
 import type { ContentBlock, PageContentResponse } from '../lib/pageContentTypes';
-import type { ProfileDto } from '../lib/types';
 
-const BlockEditor = dynamic(() => import('../components/BlockEditor'), { ssr: false });
+export async function generateMetadata(): Promise<Metadata> {
+  const { family } = await getFamilyLabel();
+  return {
+    title: `${family} History — Our Legacy`,
+    description: `The heritage and history of the ${family}, descendants of Sarah Scott and Marcus A. Scott.`,
+  };
+}
 
 const PAGE_KEY = 'history';
 
@@ -100,165 +99,31 @@ const DEFAULT_BLOCKS: ContentBlock[] = [
   },
 ];
 
-export default function HistoryPage() {
-  const { full } = useFamilyName();
+export default async function HistoryPage() {
+  let blocks = DEFAULT_BLOCKS;
 
-  // ── Auth state ──
-  const [isAdmin, setIsAdmin] = useState(false);
-
-  // ── Content state ──
-  const [blocks, setBlocks] = useState<ContentBlock[]>(DEFAULT_BLOCKS);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  // ── Edit mode state ──
-  const [editing, setEditing] = useState(false);
-  const [editBlocks, setEditBlocks] = useState<ContentBlock[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-
-  // ── Load admin status ──
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem('profile');
-      if (raw) {
-        const p: ProfileDto = JSON.parse(raw);
-        const role = p.userRole;
-        setIsAdmin(role === 'ROLE_ADMIN' || role === 'ADMIN');
+  try {
+    const res = await serverFetch<PageContentResponse>(`/api/page-content/${PAGE_KEY}`);
+    let parsed: ContentBlock[];
+    if (typeof res.blocks === 'string') {
+      try {
+        parsed = JSON.parse(res.blocks);
+      } catch {
+        parsed = [];
       }
-    } catch {
-      /* ignore */
+    } else {
+      parsed = res.blocks;
     }
-  }, []);
-
-  // ── Load page content from API ──
-  const loadContent = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const res = await apiFetch<PageContentResponse>(`/api/page-content/${PAGE_KEY}`);
-      let parsed: ContentBlock[];
-      if (typeof res.blocks === 'string') {
-        try {
-          parsed = JSON.parse(res.blocks);
-        } catch {
-          parsed = [];
-        }
-      } else {
-        parsed = res.blocks;
-      }
-      // If empty (no record in DB yet), keep defaults
-      if (parsed.length > 0) {
-        setBlocks(parsed);
-      }
-    } catch {
-      // On error, just keep defaults — page still renders
-      console.warn('Could not load page content, using defaults');
-    } finally {
-      setLoading(false);
+    if (parsed.length > 0) {
+      blocks = parsed;
     }
-  }, []);
-
-  useEffect(() => {
-    loadContent();
-  }, [loadContent]);
-
-  // ── Enter edit mode ──
-  const startEditing = () => {
-    setEditBlocks(JSON.parse(JSON.stringify(blocks))); // deep clone
-    setSaveError(null);
-    setEditing(true);
-  };
-
-  // ── Save ──
-  const handleSave = async () => {
-    setSaving(true);
-    setSaveError(null);
-    try {
-      await apiFetch(`/api/page-content/${PAGE_KEY}`, {
-        method: 'PUT',
-        body: { blocks: JSON.stringify(editBlocks) },
-      });
-      setBlocks(editBlocks);
-      setEditing(false);
-    } catch (err) {
-      setSaveError(err instanceof Error ? err.message : 'Failed to save');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // ── Cancel edit ──
-  const handleCancel = () => {
-    setEditing(false);
-    setSaveError(null);
-  };
-
-  // ── Resolve {family} placeholders in blocks for display ──
-  const resolvePlaceholders = (raw: ContentBlock[]): ContentBlock[] =>
-    JSON.parse(JSON.stringify(raw).replaceAll('{family}', full));
-
-  // ── Resolve {family} placeholders for display ──
-  const resolved = resolvePlaceholders(blocks);
-
-  // ── Loading state ──
-  if (loading) {
-    return (
-      <Box sx={{ maxWidth: 780, mx: 'auto', py: 8, textAlign: 'center' }}>
-        <CircularProgress />
-      </Box>
-    );
+  } catch {
+    // Keep defaults — page isn't blank
   }
 
   return (
-    <Box sx={{ maxWidth: 780, mx: 'auto', py: { xs: 3, sm: 5 } }}>
-      {/* Admin edit button */}
-      {isAdmin && !editing && (
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
-          <Button
-            variant="outlined"
-            startIcon={<EditIcon />}
-            onClick={startEditing}
-            sx={{ textTransform: 'none' }}
-          >
-            Edit Page
-          </Button>
-        </Box>
-      )}
-
-      {error && (
-        <Alert severity="warning" sx={{ mb: 2 }}>
-          {error}
-        </Alert>
-      )}
-
-      {/* Edit mode */}
-      {editing ? (
-        <BlockEditor
-          blocks={editBlocks}
-          onChange={setEditBlocks}
-          onSave={handleSave}
-          onCancel={handleCancel}
-          saving={saving}
-          error={saveError}
-        />
-      ) : (
-        /* View mode — render blocks inside styled cards */
-        <>
-          {/* Render hero block outside card (if first block is hero) */}
-          {resolved.length > 0 && resolved[0].type === 'hero' && (
-            <BlockRendererList blocks={[resolved[0]]} />
-          )}
-
-          <Box className="card" sx={{ p: { xs: 3, sm: 5 }, overflow: 'hidden' }}>
-            <BlockRendererList
-              blocks={resolved[0]?.type === 'hero' ? resolved.slice(1) : resolved}
-            />
-            {/* Clearfix for floated images */}
-            <Box sx={{ clear: 'both' }} />
-          </Box>
-        </>
-      )}
-    </Box>
+    <div style={{ maxWidth: 780, margin: '0 auto', paddingTop: 24, paddingBottom: 40 }}>
+      <EditablePageContent pageKey={PAGE_KEY} initialBlocks={blocks} />
+    </div>
   );
 }

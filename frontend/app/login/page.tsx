@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Box, Button, TextField, Alert, Stack, Link, Typography } from '@mui/material';
 import { apiFetch } from '../lib/api';
 import { useFamilyName } from '../lib/FamilyNameContext';
@@ -10,19 +10,28 @@ export default function LoginPage() {
   const { full } = useFamilyName();
   const router = useRouter();
   const sp = useSearchParams();
-  const next = sp.get('next') || '/profile';
+  const rawNext = sp.get('next') || '/profile';
+  // After signup, always go home instead of back to /signup
+  const next = rawNext === '/signup' ? '/' : rawNext;
   const reason = sp.get('reason');
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [msg, setMsg] = useState<{ type: 'success'|'error'|'info'; text: string }|null>(
-    reason === 'timeout'
-      ? { type: 'info', text: 'You were logged out due to inactivity.' }
-      : reason === 'expired'
-        ? { type: 'info', text: 'Your session has expired. Please log in again.' }
-        : null
+    reason === 'pending'
+      ? { type: 'success', text: 'Your signup has been submitted! An admin will review your account. You\u2019ll receive an email once approved.' }
+      : reason === 'timeout'
+        ? { type: 'info', text: 'You were logged out due to inactivity.' }
+        : reason === 'expired'
+          ? { type: 'info', text: 'Your session has expired. Please log in again.' }
+          : null
   );
   const [loading, setLoading] = useState(false);
+  const [isReturning, setIsReturning] = useState(false);
+
+  useEffect(() => {
+    setIsReturning(localStorage.getItem('hasLoggedIn') === 'true');
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -77,6 +86,7 @@ export default function LoginPage() {
 
       const profile = await resp.json();
       localStorage.setItem('profile', JSON.stringify(profile));
+      localStorage.setItem('hasLoggedIn', 'true');
       window.dispatchEvent(new Event('profile-updated'));
       router.replace(next);
     } catch (err: unknown) {
@@ -115,7 +125,7 @@ export default function LoginPage() {
           variant="h4"
           sx={{ fontWeight: 800, color: 'var(--color-primary-700)', letterSpacing: '-0.02em', mb: 0.5 }}
         >
-          Welcome Back
+          {isReturning ? 'Welcome Back' : 'Welcome'}
         </Typography>
         <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>
           Sign in to access the {full} family site

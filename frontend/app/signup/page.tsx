@@ -6,6 +6,7 @@ import {
   Button,
   Chip,
   CircularProgress,
+  Collapse,
   Divider,
   TextField,
   Alert,
@@ -13,9 +14,12 @@ import {
   Typography,
   MenuItem,
   FormControl,
+  IconButton,
   InputLabel,
   Select,
 } from '@mui/material';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import { apiFetch, uploadAnonymous } from '../lib/api';
 import PersonAutocomplete from '../components/PersonAutocomplete';
 import { useFamilyName } from '../lib/FamilyNameContext';
@@ -24,7 +28,7 @@ import type { ProfileDto, PersonSummaryDto } from '../lib/types';
 const PREFIX_OPTIONS = ['', 'Mr.', 'Mrs.', 'Ms.', 'Dr.', 'Rev.'];
 const SUFFIX_OPTIONS = ['', 'Jr.', 'Sr.', 'II', 'III', 'IV', 'Esq.'];
 
-type PersonHit = { personId: number; displayName: string; dateOfBirth?: string | null; dateOfDeath?: string | null; deceased?: boolean };
+type PersonHit = { personId: number; displayName: string; dateOfBirth?: string | null; dateOfDeath?: string | null; deceased?: boolean; archived?: boolean };
 
 function useDebounced<T>(val: T, ms = 300) {
   const [v, setV] = useState(val);
@@ -62,13 +66,39 @@ export default function SignupPage() {
   // Profile claim state
   const [claimPersonId, setClaimPersonId] = useState<number | null>(null);
   const [claimedProfile, setClaimedProfile] = useState<ProfileDto | null>(null);
+  const [isArchivedClaim, setIsArchivedClaim] = useState(false);
 
   // Name search autocomplete state
   const [nameSearchInput, setNameSearchInput] = useState('');
   const [nameSearchResults, setNameSearchResults] = useState<PersonHit[]>([]);
+  const [archivedSearchResults, setArchivedSearchResults] = useState<PersonHit[]>([]);
   const [nameSearchLoading, setNameSearchLoading] = useState(false);
   const debouncedNameSearch = useDebounced(nameSearchInput, 350);
+  const debouncedDob = useDebounced(form.dateOfBirth, 350);
   const mounted = useRef(true);
+
+  // Per-result family info expand state
+  const [expandedPersonId, setExpandedPersonId] = useState<number | null>(null);
+  const [familyCache, setFamilyCache] = useState<Record<number, ProfileDto | null>>({});
+  const [familyLoading, setFamilyLoading] = useState<number | null>(null);
+
+  async function toggleFamilyInfo(personId: number) {
+    if (expandedPersonId === personId) { setExpandedPersonId(null); return; }
+    setExpandedPersonId(personId);
+    if (familyCache[personId] !== undefined) return; // already loaded
+    try {
+      setFamilyLoading(personId);
+      const apiBase = process.env.NEXT_PUBLIC_API_BASE ?? '';
+      const res = await fetch(`${apiBase}/api/profile/${personId}`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed');
+      const profile: ProfileDto = await res.json();
+      setFamilyCache(prev => ({ ...prev, [personId]: profile }));
+    } catch {
+      setFamilyCache(prev => ({ ...prev, [personId]: null }));
+    } finally {
+      setFamilyLoading(null);
+    }
+  }
 
   useEffect(() => {
     mounted.current = true;
@@ -80,7 +110,7 @@ export default function SignupPage() {
     let cancelled = false;
     async function run() {
       const first = form.firstName.trim();
-      if (!first || first.length < 2) { setNameSearchResults([]); return; }
+      if (!first || first.length < 2) { setNameSearchResults([]); setArchivedSearchResults([]); return; }
       try {
         setNameSearchLoading(true);
         const apiBase = process.env.NEXT_PUBLIC_API_BASE ?? '';
@@ -101,6 +131,31 @@ export default function SignupPage() {
     run();
     return () => { cancelled = true; };
   }, [debouncedNameSearch]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Search for archived but living profiles when name + DOB are both provided
+  useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      const first = form.firstName.trim();
+      const dob = form.dateOfBirth;
+      if (!first || first.length < 2 || !dob) { setArchivedSearchResults([]); return; }
+      try {
+        const apiBase = process.env.NEXT_PUBLIC_API_BASE ?? '';
+        const params = new URLSearchParams({ firstName: first, dateOfBirth: dob });
+        if (form.lastName.trim()) params.set('lastName', form.lastName.trim());
+        const res = await fetch(`${apiBase}/api/people/unclaimed-archived?${params}`, {
+          credentials: 'include',
+        });
+        if (!res.ok) throw new Error('Search failed');
+        const data: PersonHit[] = await res.json();
+        if (!cancelled && mounted.current) setArchivedSearchResults(data || []);
+      } catch {
+        if (!cancelled && mounted.current) setArchivedSearchResults([]);
+      }
+    }
+    run();
+    return () => { cancelled = true; };
+  }, [debouncedNameSearch, debouncedDob]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // When user types first or last name, update the debounce trigger
   useEffect(() => {
@@ -133,6 +188,7 @@ export default function SignupPage() {
 
       setClaimPersonId(person.personId);
       setClaimedProfile(profile);
+      setIsArchivedClaim(person.archived === true);
       setForm((prev) => ({
         ...prev,
         firstName: profile.firstName || prev.firstName,
@@ -141,11 +197,18 @@ export default function SignupPage() {
         prefix: profile.prefix || prev.prefix,
         suffix: profile.suffix || prev.suffix,
         dateOfBirth: profile.dateOfBirth || prev.dateOfBirth,
+        bio: profile.bio || prev.bio,
       }));
 
-      // Auto-populate mother/father
+      // Auto-populate mother/father and their relations from the claimed profile
       setMotherId(profile.motherId ?? null);
       setFatherId(profile.fatherId ?? null);
+
+      // Derive relation types from parents array
+      const motherParent = profile.parents?.find(p => p.relation && p.relation.includes('MOTHER'));
+      const fatherParent = profile.parents?.find(p => p.relation && p.relation.includes('FATHER'));
+      if (motherParent?.relation) setMotherRelation(motherParent.relation);
+      if (fatherParent?.relation) setFatherRelation(fatherParent.relation);
 
       // Clear search results
       setNameSearchResults([]);
@@ -157,8 +220,10 @@ export default function SignupPage() {
   function unclaim() {
     setClaimPersonId(null);
     setClaimedProfile(null);
+    setIsArchivedClaim(false);
     setMotherId(null);
     setFatherId(null);
+    setArchivedSearchResults([]);
   }
 
   async function onSubmit(e: React.FormEvent) {
@@ -213,10 +278,8 @@ export default function SignupPage() {
       });
 
       localStorage.setItem('profile', JSON.stringify(profile));
-      setMsg({
-        type: 'info',
-        text: 'Signup received. An admin must approve your account. You will receive an email once approved.',
-      });
+      // Redirect to login with pending-approval message
+      window.location.href = '/login?reason=pending';
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Signup failed';
       setMsg({ type: 'error', text: message });
@@ -281,29 +344,100 @@ export default function SignupPage() {
                 <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
                   We found matching profiles. Is this you?
                 </Typography>
-                <Stack spacing={0.5}>
-                  {nameSearchResults.map(p => (
-                    <Box
-                      key={p.personId}
-                      onClick={() => claimPerson(p)}
-                      sx={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        px: 1.5, py: 0.75,
-                        borderRadius: 1,
-                        cursor: 'pointer',
-                        '&:hover': { bgcolor: 'rgba(var(--color-primary-rgb, 59,130,246), 0.08)' },
-                      }}
-                    >
-                      <Box>
-                        <Typography variant="body2" sx={{ fontWeight: 500 }}>{p.displayName}</Typography>
+                <Stack spacing={0}>
+                  {nameSearchResults.map(p => {
+                    const profile = familyCache[p.personId];
+                    const hasFamily = profile && (
+                      (profile.parents?.length ?? 0) > 0 ||
+                      (profile.siblings?.length ?? 0) > 0 ||
+                      (profile.spouses?.length ?? 0) > 0 ||
+                      (profile.children?.length ?? 0) > 0
+                    );
+                    return (
+                      <Box key={p.personId}>
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            px: 1.5, py: 0.75,
+                            borderRadius: 1,
+                            cursor: 'pointer',
+                            '&:hover': { bgcolor: 'rgba(var(--color-primary-rgb, 59,130,246), 0.08)' },
+                          }}
+                        >
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1, minWidth: 0 }}>
+                            <Typography variant="body2" sx={{ fontWeight: 500, whiteSpace: 'nowrap' }}>{p.displayName}</Typography>
+                            {p.dateOfBirth && (
+                              <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'nowrap' }}>
+                                b. {p.dateOfBirth}
+                              </Typography>
+                            )}
+                            <IconButton
+                              size="small"
+                              onClick={(e) => { e.stopPropagation(); toggleFamilyInfo(p.personId); }}
+                              sx={{ ml: 0.5, p: 0.25 }}
+                            >
+                              {familyLoading === p.personId ? (
+                                <CircularProgress size={14} />
+                              ) : expandedPersonId === p.personId ? (
+                                <ExpandLessIcon sx={{ fontSize: 18 }} />
+                              ) : (
+                                <ExpandMoreIcon sx={{ fontSize: 18 }} />
+                              )}
+                            </IconButton>
+                          </Box>
+                          <Typography
+                            variant="caption"
+                            color="primary"
+                            sx={{ fontWeight: 600, whiteSpace: 'nowrap', cursor: 'pointer', ml: 1 }}
+                            onClick={() => claimPerson(p)}
+                          >
+                            This is me
+                          </Typography>
+                        </Box>
+                        <Collapse in={expandedPersonId === p.personId && profile !== undefined}>
+                          {profile && hasFamily && (
+                            <Box sx={{ pl: 3, pr: 1.5, pb: 0.75 }}>
+                              <Stack spacing={0.25}>
+                                {(profile.parents?.length ?? 0) > 0 && (
+                                  <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                                    <strong>Parents:</strong> {profile.parents!.map(r => r.displayName).join(', ')}
+                                  </Typography>
+                                )}
+                                {(profile.siblings?.length ?? 0) > 0 && (
+                                  <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                                    <strong>Siblings:</strong> {profile.siblings!.map(r => r.displayName).join(', ')}
+                                  </Typography>
+                                )}
+                                {(profile.spouses?.length ?? 0) > 0 && (
+                                  <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                                    <strong>Spouse(s):</strong> {profile.spouses!.map(r => r.displayName).join(', ')}
+                                  </Typography>
+                                )}
+                                {(profile.children?.length ?? 0) > 0 && (
+                                  <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                                    <strong>Children:</strong> {profile.children!.map(r => r.displayName).join(', ')}
+                                  </Typography>
+                                )}
+                              </Stack>
+                            </Box>
+                          )}
+                          {profile && !hasFamily && (
+                            <Box sx={{ pl: 3, pr: 1.5, pb: 0.75 }}>
+                              <Typography variant="caption" sx={{ color: 'text.secondary', fontStyle: 'italic' }}>
+                                No family connections on file
+                              </Typography>
+                            </Box>
+                          )}
+                          {profile === null && (
+                            <Box sx={{ pl: 3, pr: 1.5, pb: 0.75 }}>
+                              <Typography variant="caption" color="error">Failed to load family info</Typography>
+                            </Box>
+                          )}
+                        </Collapse>
                       </Box>
-                      <Typography variant="caption" color="primary" sx={{ fontWeight: 600 }}>
-                        This is me
-                      </Typography>
-                    </Box>
-                  ))}
+                    );
+                  })}
                 </Stack>
               </Alert>
             )}
@@ -315,18 +449,66 @@ export default function SignupPage() {
               </Stack>
             )}
 
+            {/* Archived profile matches — requires name + DOB match */}
+            {archivedSearchResults.length > 0 && !claimPersonId && (
+              <Alert severity="warning" variant="outlined" sx={{ py: 0.5 }}>
+                <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                  We found archived records matching your name and date of birth.
+                </Typography>
+                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1 }}>
+                  If one of these is you, request to claim it. An admin will review and approve your request.
+                </Typography>
+                <Stack spacing={0.5}>
+                  {archivedSearchResults.map(p => (
+                    <Box
+                      key={p.personId}
+                      onClick={() => claimPerson(p)}
+                      sx={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        px: 1.5, py: 0.75,
+                        borderRadius: 1,
+                        cursor: 'pointer',
+                        '&:hover': { bgcolor: 'rgba(255, 152, 0, 0.08)' },
+                      }}
+                    >
+                      <Box>
+                        <Typography variant="body2" sx={{ fontWeight: 500 }}>{p.displayName}</Typography>
+                        {p.dateOfBirth && (
+                          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                            Born: {p.dateOfBirth}
+                          </Typography>
+                        )}
+                      </Box>
+                      <Typography variant="caption" sx={{ fontWeight: 600, color: 'warning.main' }}>
+                        Request to claim
+                      </Typography>
+                    </Box>
+                  ))}
+                </Stack>
+              </Alert>
+            )}
+
             {/* Claimed profile confirmation */}
             {claimPersonId && claimedProfile && (
-              <Alert severity="success" variant="outlined">
+              <Alert severity={isArchivedClaim ? 'warning' : 'success'} variant="outlined">
                 <Stack spacing={1}>
                   <Stack direction="row" justifyContent="space-between" alignItems="center">
                     <Typography variant="body2">
-                      Claiming profile: <strong>{claimedProfile.displayName}</strong>
+                      {isArchivedClaim ? 'Requesting to claim archived profile: ' : 'Claiming profile: '}
+                      <strong>{claimedProfile.displayName}</strong>
                     </Typography>
                     <Button size="small" onClick={unclaim}>
                       Cancel
                     </Button>
                   </Stack>
+
+                  {isArchivedClaim && (
+                    <Typography variant="caption" sx={{ color: 'warning.main', fontWeight: 500 }}>
+                      This is an archived record. Your signup will require admin approval to verify your identity.
+                    </Typography>
+                  )}
 
                   {/* Show auto-populated family info */}
                   {(claimedProfile.parents?.length ?? 0) > 0 && (
@@ -350,11 +532,12 @@ export default function SignupPage() {
 
             <TextField
               name="dateOfBirth"
-              label="Date of Birth (optional)"
+              label="Date of Birth"
               type="date"
               value={form.dateOfBirth}
               onChange={onChange}
               InputLabelProps={{ shrink: true }}
+              required
               fullWidth
             />
 
@@ -367,50 +550,95 @@ export default function SignupPage() {
 
             <Divider><Chip label="Family Links" size="small" sx={{ fontSize: '0.75rem' }} /></Divider>
 
-            <PersonAutocomplete
-              label="Mother (optional)"
-              value={motherId}
-              onChange={(pid) => setMotherId(pid)}
-              placeholder="Start typing a name…"
-            />
-            {motherId != null && (
-              <FormControl size="small" sx={{ minWidth: 200 }}>
-                <InputLabel>Mother Relation</InputLabel>
-                <Select
-                  value={motherRelation}
-                  label="Mother Relation"
-                  onChange={(e) => setMotherRelation(e.target.value)}
-                >
-                  <MenuItem value="BIOLOGICAL_MOTHER">Biological Mother</MenuItem>
-                  <MenuItem value="ADOPTIVE_MOTHER">Adoptive Mother</MenuItem>
-                  <MenuItem value="STEP_MOTHER">Step Mother</MenuItem>
-                  <MenuItem value="FOSTER_MOTHER">Foster Mother</MenuItem>
-                  <MenuItem value="GUARDIAN">Guardian</MenuItem>
-                </Select>
-              </FormControl>
-            )}
+            {claimPersonId ? (
+              // When claiming a profile, show parents as read-only to prevent genealogy corruption.
+              // Users can request corrections after signup through the profile change request flow.
+              <>
+                {(motherId != null || fatherId != null) ? (
+                  <Alert severity="info" variant="outlined" sx={{ py: 1 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>Family connections from claimed profile</Typography>
+                    <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.5 }}>
+                      These are locked to the claimed profile. If incorrect, you may be claiming the wrong person.
+                      You can request corrections after your account is approved.
+                    </Typography>
+                    <Stack spacing={0.25} sx={{ mt: 0.5 }}>
+                      {motherId != null && (
+                        <Typography variant="body2">
+                          <strong>Mother:</strong> {claimedProfile?.parents?.find((p: any) => p.relation?.includes('MOTHER'))?.displayName ?? `Person #${motherId}`}
+                          {motherRelation && (
+                            <Typography component="span" variant="caption" sx={{ ml: 0.5, color: 'text.secondary' }}>
+                              ({motherRelation.replace(/_/g, ' ').toLowerCase()})
+                            </Typography>
+                          )}
+                        </Typography>
+                      )}
+                      {fatherId != null && (
+                        <Typography variant="body2">
+                          <strong>Father:</strong> {claimedProfile?.parents?.find((p: any) => p.relation?.includes('FATHER'))?.displayName ?? `Person #${fatherId}`}
+                          {fatherRelation && (
+                            <Typography component="span" variant="caption" sx={{ ml: 0.5, color: 'text.secondary' }}>
+                              ({fatherRelation.replace(/_/g, ' ').toLowerCase()})
+                            </Typography>
+                          )}
+                        </Typography>
+                      )}
+                    </Stack>
+                  </Alert>
+                ) : (
+                  <Typography variant="body2" sx={{ color: 'text.secondary', fontStyle: 'italic' }}>
+                    No parent connections on this profile. You can add them after your account is approved.
+                  </Typography>
+                )}
+              </>
+            ) : (
+              // Normal signup (no claim) — editable parent fields
+              <>
+                <PersonAutocomplete
+                  label="Mother (optional)"
+                  value={motherId}
+                  onChange={(pid) => setMotherId(pid)}
+                  placeholder="Start typing a name…"
+                />
+                {motherId != null && (
+                  <FormControl size="small" sx={{ minWidth: 200 }}>
+                    <InputLabel>Mother Relation</InputLabel>
+                    <Select
+                      value={motherRelation}
+                      label="Mother Relation"
+                      onChange={(e) => setMotherRelation(e.target.value)}
+                    >
+                      <MenuItem value="BIOLOGICAL_MOTHER">Biological Mother</MenuItem>
+                      <MenuItem value="ADOPTIVE_MOTHER">Adoptive Mother</MenuItem>
+                      <MenuItem value="STEP_MOTHER">Step Mother</MenuItem>
+                      <MenuItem value="FOSTER_MOTHER">Foster Mother</MenuItem>
+                      <MenuItem value="GUARDIAN">Guardian</MenuItem>
+                    </Select>
+                  </FormControl>
+                )}
 
-            <PersonAutocomplete
-              label="Father (optional)"
-              value={fatherId}
-              onChange={(pid) => setFatherId(pid)}
-              placeholder="Start typing a name\u2026"
-            />
-            {fatherId != null && (
-              <FormControl size="small" sx={{ minWidth: 200 }}>
-                <InputLabel>Father Relation</InputLabel>
-                <Select
-                  value={fatherRelation}
-                  label="Father Relation"
-                  onChange={(e) => setFatherRelation(e.target.value)}
-                >
-                  <MenuItem value="BIOLOGICAL_FATHER">Biological Father</MenuItem>
-                  <MenuItem value="ADOPTIVE_FATHER">Adoptive Father</MenuItem>
-                  <MenuItem value="STEP_FATHER">Step Father</MenuItem>
-                  <MenuItem value="FOSTER_FATHER">Foster Father</MenuItem>
-                  <MenuItem value="GUARDIAN">Guardian</MenuItem>
-                </Select>
-              </FormControl>
+                <PersonAutocomplete
+                  label="Father (optional)"
+                  value={fatherId}
+                  onChange={(pid) => setFatherId(pid)}
+                  placeholder="Start typing a name…"
+                />
+                {fatherId != null && (
+                  <FormControl size="small" sx={{ minWidth: 200 }}>
+                    <InputLabel>Father Relation</InputLabel>
+                    <Select
+                      value={fatherRelation}
+                      label="Father Relation"
+                      onChange={(e) => setFatherRelation(e.target.value)}
+                    >
+                      <MenuItem value="BIOLOGICAL_FATHER">Biological Father</MenuItem>
+                      <MenuItem value="ADOPTIVE_FATHER">Adoptive Father</MenuItem>
+                      <MenuItem value="STEP_FATHER">Step Father</MenuItem>
+                      <MenuItem value="FOSTER_FATHER">Foster Father</MenuItem>
+                      <MenuItem value="GUARDIAN">Guardian</MenuItem>
+                    </Select>
+                  </FormControl>
+                )}
+              </>
             )}
 
             <Divider><Chip label="Photos" size="small" sx={{ fontSize: '0.75rem' }} /></Divider>

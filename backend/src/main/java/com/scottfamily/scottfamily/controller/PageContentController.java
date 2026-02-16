@@ -3,9 +3,6 @@ package com.scottfamily.scottfamily.controller;
 import java.io.IOException;
 import java.util.Map;
 
-import org.jooq.DSLContext;
-import org.jooq.impl.DSL;
-import org.jooq.impl.SQLDataType;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -19,9 +16,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import jakarta.validation.Valid;
 
 import com.scottfamily.scottfamily.service.CdnUploadService;
 import com.scottfamily.scottfamily.service.PageContentService;
+import com.scottfamily.scottfamily.service.UserHelper;
 
 /**
  * REST API for modular page content.
@@ -36,14 +35,14 @@ public class PageContentController {
 
     private final PageContentService pageContentService;
     private final CdnUploadService cdnUploadService;
-    private final DSLContext dsl;
+    private final UserHelper userHelper;
 
     public PageContentController(PageContentService pageContentService,
                                   CdnUploadService cdnUploadService,
-                                  DSLContext dsl) {
+                                  UserHelper userHelper) {
         this.pageContentService = pageContentService;
         this.cdnUploadService = cdnUploadService;
-        this.dsl = dsl;
+        this.userHelper = userHelper;
     }
 
     /** Public — any visitor can read page content. */
@@ -62,10 +61,10 @@ public class PageContentController {
     @PutMapping("/{pageKey}")
     public ResponseEntity<Map<String, Object>> saveBlocks(
             @PathVariable String pageKey,
-            @RequestBody SaveBlocksRequest request,
+            @Valid @RequestBody SaveBlocksRequest request,
             Authentication auth
     ) {
-        Long userId = resolveUserId(auth.getName());
+        Long userId = userHelper.resolveUserId(auth.getName());
         pageContentService.saveBlocks(pageKey, request.blocks, userId);
         return ResponseEntity.ok(Map.of("pageKey", pageKey, "saved", true));
     }
@@ -86,14 +85,5 @@ public class PageContentController {
 
     public static class SaveBlocksRequest {
         public String blocks; // JSON string of content blocks array
-    }
-
-    // ── Helper ──
-
-    private Long resolveUserId(String username) {
-        return dsl.select(DSL.field(DSL.name("users", "id"), SQLDataType.BIGINT))
-                .from(DSL.table(DSL.name("users")))
-                .where(DSL.field(DSL.name("users", "username"), SQLDataType.NVARCHAR(255)).eq(username))
-                .fetchOne(DSL.field(DSL.name("users", "id"), SQLDataType.BIGINT));
     }
 }

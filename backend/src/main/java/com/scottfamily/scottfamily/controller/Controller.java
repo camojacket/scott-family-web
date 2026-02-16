@@ -17,6 +17,7 @@ import java.util.Map;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -42,7 +43,7 @@ public class Controller {
 
     // --- Auth ---
     @PostMapping("/auth/login")
-    public ResponseEntity<?> login(@RequestBody DTOs.LoginRequest req,
+    public ResponseEntity<?> login(@Valid @RequestBody DTOs.LoginRequest req,
                                  HttpServletRequest request,
                                  HttpServletResponse response) {
 
@@ -118,7 +119,7 @@ public class Controller {
     }
 
     @PostMapping("/auth/signup")
-    public DTOs.ProfileDto signup(@RequestBody DTOs.SignupRequest req) {
+    public DTOs.ProfileDto signup(@Valid @RequestBody DTOs.SignupRequest req) {
         return authService.signup(req);
     }
 

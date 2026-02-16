@@ -60,4 +60,14 @@ public class SiteSettingsService {
     public void putAll(Map<String, String> entries) {
         entries.forEach(this::put);
     }
+
+    /** Convenience: check if a bypass-style boolean flag is "true". */
+    public boolean isEnabled(String key) {
+        return "true".equalsIgnoreCase(get(key));
+    }
+
+    // Well-known keys
+    public static final String BYPASS_SIGNUP_APPROVAL          = "bypass_signup_approval";
+    public static final String BYPASS_PROFILE_CHANGE_APPROVAL  = "bypass_profile_change_approval";
+    public static final String BYPASS_PEOPLE_REQUEST_APPROVAL  = "bypass_people_request_approval";
 }

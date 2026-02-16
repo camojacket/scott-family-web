@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import jakarta.validation.Valid;
 
 import com.scottfamily.scottfamily.dto.DTOs;
 import com.scottfamily.scottfamily.service.PeopleService;
@@ -36,8 +37,9 @@ public class PeopleController {
 
     @GetMapping("/people/search")
     public List<DTOs.PersonSummaryDto> search(@RequestParam("q") String q,
-                                              @RequestParam(value = "limit", defaultValue = "10") int limit) {
-        return people.searchPeople(q, Math.max(1, Math.min(limit, 25)));
+                                              @RequestParam(value = "limit", defaultValue = "10") int limit,
+                                              @RequestParam(value = "excludeArchived", defaultValue = "true") boolean excludeArchived) {
+        return people.searchPeople(q, Math.max(1, Math.min(limit, 25)), excludeArchived);
     }
 
     /**
@@ -51,9 +53,23 @@ public class PeopleController {
         return people.searchUnclaimed(firstName, lastName);
     }
 
+    /**
+     * Search for archived but living profiles matching name + DOB.
+     * Used during signup to let living elders claim their archived records.
+     * Claims always require admin approval.
+     */
+    @GetMapping("/people/unclaimed-archived")
+    public List<DTOs.PersonSummaryDto> searchUnclaimedArchived(
+            @RequestParam("firstName") String firstName,
+            @RequestParam(value = "lastName", required = false) String lastName,
+            @RequestParam("dateOfBirth") String dateOfBirth) {
+        LocalDate dob = LocalDate.parse(dateOfBirth);
+        return people.searchUnclaimedArchived(firstName, lastName, dob);
+    }
+
     @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/people")
-    public ResponseEntity<DTOs.PersonSummaryDto> create(@RequestBody DTOs.CreatePersonRequest req) {
+    public ResponseEntity<DTOs.PersonSummaryDto> create(@Valid @RequestBody DTOs.CreatePersonRequest req) {
         Long id = people.createPerson(req);
         LocalDate dob = req.getDateOfBirth() != null && !req.getDateOfBirth().isBlank()
                 ? LocalDate.parse(req.getDateOfBirth()) : null;
@@ -78,7 +94,7 @@ public class PeopleController {
     }
 
     @PostMapping("/people/{parentId}/children")
-    public ResponseEntity<?> addChild(@PathVariable Long parentId, @RequestBody DTOs.LinkChildRequest req) {
+    public ResponseEntity<?> addChild(@PathVariable Long parentId, @Valid @RequestBody DTOs.LinkChildRequest req) {
         // Reject direct child-linking for people who have a user account.
         // Those must go through the pending-request flow.
         if (people.hasAccount(parentId)) {
@@ -96,7 +112,7 @@ public class PeopleController {
      */
     @PreAuthorize("hasRole('ADMIN')")
     @PutMapping("/people/{personId}")
-    public ResponseEntity<Void> adminEditPerson(@PathVariable Long personId, @RequestBody DTOs.EditPersonRequest req) {
+    public ResponseEntity<Void> adminEditPerson(@PathVariable Long personId, @Valid @RequestBody DTOs.EditPersonRequest req) {
         if (people.hasAccount(personId)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build(); // must use profile-change flow for accounts
         }
@@ -112,7 +128,7 @@ public class PeopleController {
     public ResponseEntity<Void> submitPeopleChangeRequest(
             @PathVariable Long personId,
             @AuthenticationPrincipal User principal,
-            @RequestBody DTOs.EditPersonRequest req
+            @Valid @RequestBody DTOs.EditPersonRequest req
     ) {
         if (principal == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
 

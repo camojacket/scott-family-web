@@ -6,6 +6,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import jakarta.validation.Valid;
 import java.time.LocalDate;
 import java.util.Map;
 
@@ -51,7 +52,7 @@ public class DuePeriodController {
     /** Admin: save or update the reunion due period. */
     @PreAuthorize("hasRole('ADMIN')")
     @PostMapping
-    public ResponseEntity<?> savePeriod(@RequestBody SavePeriodRequest request) {
+    public ResponseEntity<?> savePeriod(@Valid @RequestBody SavePeriodRequest request) {
         if (request.reunionYear < 2000 || request.reunionYear > 2100) {
             return ResponseEntity.badRequest().body(Map.of("error", "Invalid reunion year"));
         }

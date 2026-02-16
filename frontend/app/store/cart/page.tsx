@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import Image from '../../components/CdnImage';
 import {
   Box,
   Typography,
@@ -246,18 +247,15 @@ export default function CartPage() {
             >
               {/* Product image */}
               {item.imageUrl ? (
-                <Box
-                  component="img"
-                  src={item.imageUrl}
-                  alt={item.productName}
-                  sx={{
-                    width: 72,
-                    height: 72,
-                    objectFit: 'cover',
-                    borderRadius: 'var(--radius-sm)',
-                    flexShrink: 0,
-                  }}
-                />
+                <Box sx={{ position: 'relative', width: 72, height: 72, flexShrink: 0, borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
+                  <Image
+                    src={item.imageUrl}
+                    alt={item.productName}
+                    fill
+                    sizes="72px"
+                    style={{ objectFit: 'cover' }}
+                  />
+                </Box>
               ) : (
                 <Box
                   sx={{

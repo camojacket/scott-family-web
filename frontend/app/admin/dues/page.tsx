@@ -328,13 +328,22 @@ export default function AdminDuesPage() {
                     </TableSortLabel>
                   </TableCell>
                   <TableCell>Amount</TableCell>
+                  <TableCell>Paid By</TableCell>
                   <TableCell>Paid On</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {paged.map(row => (
-                  <TableRow key={row.userId}>
-                    <TableCell sx={{ fontWeight: 500 }}>{row.displayName}</TableCell>
+                {paged.map((row, idx) => (
+                  <TableRow key={row.userId ?? `p${row.personId}` ?? `i${idx}`}>
+                    <TableCell sx={{ fontWeight: 500 }}>
+                      {row.displayName}
+                      {!row.userId && row.personId && (
+                        <Chip label="Profile" size="small" variant="outlined" sx={{ ml: 1 }} />
+                      )}
+                      {!row.userId && !row.personId && (
+                        <Chip label="Guest" size="small" variant="outlined" sx={{ ml: 1 }} />
+                      )}
+                    </TableCell>
                     <TableCell>{row.dateOfBirth ?? '—'}</TableCell>
                     <TableCell>
                       {row.paid ? (
@@ -344,6 +353,9 @@ export default function AdminDuesPage() {
                       )}
                     </TableCell>
                     <TableCell>{row.paid ? formatCents(row.amountCents) : '—'}</TableCell>
+                    <TableCell>
+                      {row.paidByName ?? '—'}
+                    </TableCell>
                     <TableCell>
                       {row.paidAt ? new Date(row.paidAt).toLocaleDateString() : '—'}
                     </TableCell>

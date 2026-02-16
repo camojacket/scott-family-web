@@ -10,6 +10,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Service for managing the product catalog (shirts, merch).
@@ -106,6 +108,10 @@ public class StoreService {
                 .orderBy(P_CREATED.desc())
                 .fetch();
 
+        // Batch-fetch all variants for the returned product IDs in a single query
+        List<Long> productIds = products.map(r -> r.get(P_ID));
+        var variantsByProduct = fetchVariantsByProductIds(productIds);
+
         return products.map(rec -> {
             Long pid = rec.get(P_ID);
             return new ProductDto(
@@ -115,17 +121,23 @@ public class StoreService {
                     rec.get(P_IMAGE),
                     rec.get(P_PRICE) != null ? rec.get(P_PRICE) : 0,
                     Boolean.TRUE.equals(rec.get(P_ACTIVE)),
-                    getVariantsForProduct(pid)
+                    variantsByProduct.getOrDefault(pid, List.of())
             );
         });
     }
 
-    /** List ALL products including inactive (admin). */
-    public List<ProductDto> listAllProducts() {
+    /** List ALL products including inactive (admin, paginated). */
+    public List<ProductDto> listAllProducts(int offset, int limit) {
         var products = dsl.select(P_ID, P_NAME, P_DESC, P_IMAGE, P_PRICE, P_ACTIVE)
                 .from(PRODUCTS)
                 .orderBy(P_CREATED.desc())
+                .offset(offset)
+                .limit(limit)
                 .fetch();
+
+        // Batch-fetch all variants for the returned product IDs in a single query
+        List<Long> productIds = products.map(r -> r.get(P_ID));
+        var variantsByProduct = fetchVariantsByProductIds(productIds);
 
         return products.map(rec -> {
             Long pid = rec.get(P_ID);
@@ -136,9 +148,14 @@ public class StoreService {
                     rec.get(P_IMAGE),
                     rec.get(P_PRICE) != null ? rec.get(P_PRICE) : 0,
                     Boolean.TRUE.equals(rec.get(P_ACTIVE)),
-                    getVariantsForProduct(pid)
+                    variantsByProduct.getOrDefault(pid, List.of())
             );
         });
+    }
+
+    /** Backward-compatible overload */
+    public List<ProductDto> listAllProducts() {
+        return listAllProducts(0, 200);
     }
 
     /** Get a single product by ID. */
@@ -174,6 +191,27 @@ public class StoreService {
                         v.get(V_STOCK) != null ? v.get(V_STOCK) : 0,
                         Boolean.TRUE.equals(v.get(V_ACTIVE))
                 ));
+    }
+
+    /** Batch-fetch variants for multiple products in a single query. */
+    private Map<Long, List<VariantDto>> fetchVariantsByProductIds(List<Long> productIds) {
+        if (productIds.isEmpty()) return Map.of();
+        return dsl.select(V_ID, V_PRODUCT_ID, V_SIZE, V_COLOR, V_PRICE, V_STOCK, V_ACTIVE)
+                .from(VARIANTS)
+                .where(V_PRODUCT_ID.in(productIds))
+                .orderBy(V_SIZE.asc())
+                .fetch()
+                .stream()
+                .map(v -> new VariantDto(
+                        v.get(V_ID),
+                        v.get(V_PRODUCT_ID),
+                        v.get(V_SIZE),
+                        v.get(V_COLOR),
+                        v.get(V_PRICE),
+                        v.get(V_STOCK) != null ? v.get(V_STOCK) : 0,
+                        Boolean.TRUE.equals(v.get(V_ACTIVE))
+                ))
+                .collect(Collectors.groupingBy(VariantDto::productId));
     }
 
     // ── Product Write (Admin) ──

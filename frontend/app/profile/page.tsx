@@ -3,7 +3,6 @@
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
-  Avatar,
   Box,
   Button,
   Chip,
@@ -24,6 +23,8 @@ import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
 import { apiFetch, uploadForUser } from '../lib/api';
 import PersonAutocomplete from '../components/PersonAutocomplete';
+import CdnAvatar from '../components/CdnAvatar';
+import Image from '../components/CdnImage';
 
 type Rel = { id: number; displayName: string; profilePictureUrl?: string | null };
 type PersonRelDto = { personId: number; displayName: string; relation: string };
@@ -44,6 +45,8 @@ type ProfileDto = {
   email: string;
   userRole?: string;
   displayName: string;
+  firstName?: string;
+  lastName?: string;
   bio?: string;
   profilePictureUrl?: string | null;
   bannerImageUrl?: string | null;
@@ -109,10 +112,16 @@ export default function MeProfilePage() {
         setUsername(parsed.username);
         setEmail(parsed.email);
         setDisplayName(parsed.displayName);
-        // Initialize name fields from displayName (best-effort split until backend returns individual fields)
-        const nameParts = (parsed.displayName || '').split(' ');
-        setEditFirstName(nameParts[0] || '');
-        setEditLastName(nameParts.length > 1 ? nameParts.slice(1).join(' ') : '');
+        // Use individual name fields from backend if available; fall back to displayName (stripping year range)
+        if (parsed.firstName || parsed.lastName) {
+          setEditFirstName(parsed.firstName || '');
+          setEditLastName(parsed.lastName || '');
+        } else {
+          const cleaned = (parsed.displayName || '').replace(/\s*\(.*\)\s*$/, '');
+          const nameParts = cleaned.split(' ');
+          setEditFirstName(nameParts[0] || '');
+          setEditLastName(nameParts.length > 1 ? nameParts.slice(1).join(' ') : '');
+        }
         setMotherId(parsed.mother?.id ?? '');
         setFatherId(parsed.father?.id ?? '');
         // Initialize relation from parents if available
@@ -210,8 +219,9 @@ export default function MeProfilePage() {
       }
 
       // (2) Persist direct fields via /api/users/me (DON'T send mother/father here)
-      const nameChanged = editFirstName !== (me.displayName?.split(' ')[0] || '') ||
-        editLastName !== (me.displayName?.split(' ').slice(1).join(' ') || '');
+      const origFirst = (me as ProfileDto).firstName || me.displayName?.replace(/\s*\(.*\)\s*$/, '').split(' ')[0] || '';
+      const origLast = (me as ProfileDto).lastName || me.displayName?.replace(/\s*\(.*\)\s*$/, '').split(' ').slice(1).join(' ') || '';
+      const nameChanged = editFirstName !== origFirst || editLastName !== origLast;
       if (username !== me.username || email !== me.email || nameChanged) {
         const updated = await apiFetch<ProfileDto>('/api/users/me', {
           method: 'PUT',
@@ -319,18 +329,27 @@ export default function MeProfilePage() {
       {/* Banner + avatar hero section */}
       <Box className="card" sx={{ overflow: 'hidden', mb: 3, position: 'relative' }}>
         {/* Banner image */}
-        <Box
-          sx={{
-            height: { xs: 140, sm: 200 },
-            background: me.bannerImageUrl
-              ? `url(${me.bannerImageUrl}) center/cover no-repeat`
-              : 'linear-gradient(135deg, #0d47a1 0%, #1976d2 50%, #42a5f5 100%)',
-          }}
-        />
+        {me.bannerImageUrl ? (
+          <Box sx={{ position: 'relative', height: { xs: 140, sm: 200 } }}>
+            <Image
+              src={me.bannerImageUrl}
+              alt="Profile banner"
+              fill
+              style={{ objectFit: 'cover' }}
+            />
+          </Box>
+        ) : (
+          <Box
+            sx={{
+              height: { xs: 140, sm: 200 },
+              background: 'linear-gradient(135deg, #0d47a1 0%, #1976d2 50%, #42a5f5 100%)',
+            }}
+          />
+        )}
 
         {/* Avatar overlapping banner */}
         <Box sx={{ display: 'flex', justifyContent: 'center', mt: -6 }}>
-          <Avatar
+          <CdnAvatar
             src={me.profilePictureUrl || undefined}
             sx={{
               width: 96,
@@ -343,7 +362,7 @@ export default function MeProfilePage() {
             }}
           >
             {me.displayName?.charAt(0)?.toUpperCase()}
-          </Avatar>
+          </CdnAvatar>
         </Box>
 
         {/* Profile info */}

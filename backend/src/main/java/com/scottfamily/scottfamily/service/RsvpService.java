@@ -32,9 +32,11 @@ public class RsvpService {
     private static final Field<OffsetDateTime> UPDATED_AT = DSL.field(DSL.name("updated_at"),    OffsetDateTime.class);
 
     private final DSLContext dsl;
+    private final UserHelper userHelper;
 
-    public RsvpService(DSLContext dsl) {
+    public RsvpService(DSLContext dsl, UserHelper userHelper) {
         this.dsl = dsl;
+        this.userHelper = userHelper;
     }
 
     // ── DTOs ──
@@ -66,7 +68,7 @@ public class RsvpService {
 
         if (rec == null) return null;
 
-        String displayName = resolveDisplayName(userId);
+        String displayName = userHelper.resolveDisplayName(userId);
 
         return new RsvpDto(
                 userId,
@@ -78,23 +80,30 @@ public class RsvpService {
         );
     }
 
-    /** Admin: list all RSVPs. */
-    public List<RsvpDto> listAll() {
+    /** Admin: list all RSVPs (paginated). */
+    public List<RsvpDto> listAll(int offset, int limit) {
         return dsl.select(USER_ID, ATTENDING, EXTRA_GUESTS, NOTES, UPDATED_AT)
                 .from(RSVPS)
                 .orderBy(UPDATED_AT.desc())
+                .offset(offset)
+                .limit(limit)
                 .fetch()
                 .map(rec -> {
                     Long uid = rec.get(USER_ID);
                     return new RsvpDto(
                             uid,
-                            resolveDisplayName(uid),
+                            userHelper.resolveDisplayName(uid),
                             Boolean.TRUE.equals(rec.get(ATTENDING)),
                             rec.get(EXTRA_GUESTS) != null ? rec.get(EXTRA_GUESTS) : 0,
                             rec.get(NOTES),
                             rec.get(UPDATED_AT) != null ? rec.get(UPDATED_AT).toString() : null
                     );
                 });
+    }
+
+    /** Backward-compatible overload – returns first 200 RSVPs */
+    public List<RsvpDto> listAll() {
+        return listAll(0, 200);
     }
 
     /** Summary stats for the admin dashboard. */
@@ -144,29 +153,5 @@ public class RsvpService {
     /** Admin: reset all RSVPs (typically after reunion is over). */
     public int resetAll() {
         return dsl.deleteFrom(RSVPS).execute();
-    }
-
-    // ── Helpers ──
-
-    private String resolveDisplayName(Long userId) {
-        // Join users → people to get name
-        var rec = dsl.select(PEOPLE.FIRST_NAME, PEOPLE.LAST_NAME)
-                .from(USERS)
-                .leftJoin(PEOPLE).on(USERS.PERSON_ID.eq(PEOPLE.ID))
-                .where(USERS.ID.eq(userId))
-                .fetchOne();
-
-        if (rec != null && rec.get(PEOPLE.FIRST_NAME) != null) {
-            String first = rec.get(PEOPLE.FIRST_NAME);
-            String last = rec.get(PEOPLE.LAST_NAME);
-            return (first + " " + (last != null ? last : "")).trim();
-        }
-
-        // Fallback to username
-        var usernameRec = dsl.select(USERS.USERNAME)
-                .from(USERS)
-                .where(USERS.ID.eq(userId))
-                .fetchOne();
-        return usernameRec != null ? usernameRec.get(USERS.USERNAME) : "Unknown";
     }
 }

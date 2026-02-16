@@ -2,6 +2,7 @@
 package com.scottfamily.scottfamily.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import jakarta.validation.constraints.*;
 import lombok.*;
 
 import java.time.LocalDate;
@@ -24,6 +25,7 @@ public class DTOs {
     @Getter @Setter
     public static class LinkChildRequest {
         private Long childId; // optional; if absent, create new child from newChild*
+        @NotBlank(message = "Relation type is required")
         private String relation; // BIOLOGICAL_FATHER | BIOLOGICAL_MOTHER | ADOPTIVE_PARENT | STEP_PARENT | FOSTER_FATHER | FOSTER_MOTHER | GUARDIAN | OTHER
 
         // Only used if childId is null
@@ -35,7 +37,11 @@ public class DTOs {
 
     @Getter @Setter
     public static class CreatePersonRequest {
+        @NotBlank(message = "First name is required")
+        @Size(max = 100, message = "First name must be 100 characters or fewer")
         private String firstName;
+        @NotBlank(message = "Last name is required")
+        @Size(max = 100, message = "Last name must be 100 characters or fewer")
         private String lastName;
         private String middleName;   // optional
         private String prefix;       // optional (e.g. Mr., Mrs., Dr.)
@@ -64,6 +70,9 @@ public class DTOs {
         private String dateOfDeath;  // ISO yyyy-MM-dd
         private String location;
         private Boolean deceased;
+        private Boolean archived;
+        private String profilePictureUrl;
+        private String username;
     }
     public static final class PersonRequestSubmit {
         public String action;            // "ADD" | "UPDATE" | "LINK_CHILD"
@@ -173,7 +182,10 @@ public class DTOs {
 
     public record PaymentRequest(String sourceId, long amount, String currency, String email) {}
 
-    public record LoginRequest(String username, String password) {}
+    public record LoginRequest(
+            @NotBlank(message = "Username is required") String username,
+            @NotBlank(message = "Password is required") String password
+    ) {}
 
     // ...keep your other DTOs as-is (omitted for brevity)
 
@@ -230,11 +242,18 @@ public class DTOs {
             List<PersonRelDto> spouses
     ) {}
 
-    // DTOs.java
     public record SignupRequest(
+            @NotBlank(message = "Username is required")
+            @Size(min = 3, max = 50, message = "Username must be between 3 and 50 characters")
             String username,
+            @NotBlank(message = "Password is required")
+            @Size(min = 8, message = "Password must be at least 8 characters")
             String password,
+            @NotBlank(message = "First name is required")
+            @Size(max = 100)
             String firstName,
+            @NotBlank(message = "Last name is required")
+            @Size(max = 100)
             String lastName,
             String middleName,
             String prefix,
@@ -247,6 +266,7 @@ public class DTOs {
             Long fatherId,
             String motherRelation,   // BIOLOGICAL_MOTHER | ADOPTIVE_MOTHER | STEP_MOTHER | FOSTER_MOTHER | GUARDIAN
             String fatherRelation,   // BIOLOGICAL_FATHER | ADOPTIVE_FATHER | STEP_FATHER | FOSTER_FATHER | GUARDIAN
+            @NotNull(message = "Date of birth is required")
             LocalDate dateOfBirth,
             String location,
 
@@ -266,7 +286,9 @@ public class DTOs {
             String username,
             String displayName,
             String email,
-            String requestedAt
+            String requestedAt,
+            Long archivedClaimPersonId,
+            String archivedClaimDisplayName
     ) {}
 
     // --- User's own pending profile changes + pending person requests ---

@@ -14,13 +14,11 @@ const nextConfig: NextConfig = {
     '@mui/utils',
   ],
   images: {
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: 'scottfamilyweb-cdn-fd-frfedzbjfgfvhce7.z03.azurefd.net',
-        pathname: '/**',
-      },
-    ],
+    // Azure Front Door already serves optimised images; skip the Next.js
+    // image-optimisation proxy entirely so every <Image> renders a plain
+    // <img> pointing straight at the CDN.  This eliminates the dev-server
+    // concurrency bottleneck and removes the proxy as a failure point.
+    unoptimized: true,
   },
 };
 

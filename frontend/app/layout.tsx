@@ -40,7 +40,10 @@ export async function generateMetadata(): Promise<Metadata> {
   const label = getFamilyLabel(host);
 
   return {
-    title: `${label} Family — Strengthening Family Ties`,
+    title: {
+      default: `${label} Family — Strengthening Family Ties`,
+      template: `%s | ${label} Family`,
+    },
     description: `The official website of the ${label} Family, descendants of Sarah Scott and Marcus A. Scott. Stay connected through reunions, history, and family news.`,
     keywords: [label, 'family reunion', 'genealogy', 'family tree', 'Sarah Scott', 'Marcus Scott'],
     openGraph: {

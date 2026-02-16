@@ -1,6 +1,6 @@
 'use client';
 
-import Image from 'next/image';
+import Image from './CdnImage';
 import { Typography, Box, Divider } from '@mui/material';
 import { sanitizeHtml } from '../lib/sanitize';
 import type { ContentBlock } from '../lib/pageContentTypes';

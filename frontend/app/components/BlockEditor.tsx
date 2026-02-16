@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
+import Image from './CdnImage';
 import {
   Box,
   Button,
@@ -265,11 +266,12 @@ function ImageBlockEditor({
             bgcolor: 'rgba(0,0,0,0.05)',
           }}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
+          <Image
             src={block.src}
             alt={block.alt}
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            fill
+            sizes="(max-width: 600px) 100vw, 50vw"
+            style={{ objectFit: 'cover' }}
           />
         </Box>
       )}
@@ -447,11 +449,12 @@ function ImageRowBlockEditor({
                   bgcolor: 'rgba(0,0,0,0.05)',
                 }}
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
+                <Image
                   src={img.src}
                   alt={img.alt}
-                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  fill
+                  sizes="120px"
+                  style={{ objectFit: 'cover' }}
                 />
               </Box>
             )}

@@ -245,8 +245,10 @@ export interface PaymentRequest {
 export interface DuesPaymentDto {
   id: number;
   userId?: number;
+  personId?: number;
   paidByUserId: number;
   displayName: string;
+  paidByName?: string;
   guestName?: string;
   guestAge?: number;
   reunionYear: number;
@@ -266,6 +268,10 @@ export interface DuesPageDto {
   selfPaid: boolean;
   selfPayment?: DuesPaymentDto;
   guestPayments: DuesPaymentDto[];
+  onBehalfPayments: DuesPaymentDto[];
+  paidForYouPayment?: DuesPaymentDto;
+  /** Person IDs with COMPLETED or PENDING dues for this year (for autocomplete exclusion). */
+  paidPersonIds: number[];
 }
 
 export interface DuesBatchDto {
@@ -276,12 +282,14 @@ export interface DuesBatchDto {
 }
 
 export interface DuesStatusDto {
-  userId: number;
+  userId?: number;
+  personId?: number;
   displayName: string;
   dateOfBirth?: string;
   paid: boolean;
   paidAt?: string;
   amountCents: number;
+  paidByName?: string;
 }
 
 export interface DuesSummaryDto {

@@ -6,7 +6,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 
-import org.jooq.DSLContext;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -17,12 +16,13 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.scottfamily.scottfamily.service.GalleryService;
 import com.scottfamily.scottfamily.service.GalleryService.GalleryImageDto;
 import com.scottfamily.scottfamily.service.GalleryService.ImageTagDto;
-import static com.yourproject.generated.scott_family_web.Tables.USERS;
+import com.scottfamily.scottfamily.service.UserHelper;
 
 /**
  * REST API for the family photo gallery.
@@ -40,18 +40,21 @@ import static com.yourproject.generated.scott_family_web.Tables.USERS;
 public class GalleryController {
 
     private final GalleryService galleryService;
-    private final DSLContext dsl;
+    private final UserHelper userHelper;
 
-    public GalleryController(GalleryService galleryService, DSLContext dsl) {
+    public GalleryController(GalleryService galleryService, UserHelper userHelper) {
         this.galleryService = galleryService;
-        this.dsl = dsl;
+        this.userHelper = userHelper;
     }
 
     // ── List all images (any authenticated user) ────────────────────────────────
 
     @GetMapping("/images")
-    public ResponseEntity<List<GalleryImageDto>> listImages() {
-        return ResponseEntity.ok(galleryService.listAll());
+    public ResponseEntity<List<GalleryImageDto>> listImages(
+            @RequestParam(defaultValue = "0") int offset,
+            @RequestParam(defaultValue = "200") int limit
+    ) {
+        return ResponseEntity.ok(galleryService.listAll(offset, Math.min(limit, 200)));
     }
 
     // ── Register images after direct-to-Azure upload (admin only) ───────────────
@@ -66,7 +69,7 @@ public class GalleryController {
             @RequestBody RegisterRequest request,
             Authentication auth
     ) {
-        Long uploaderId = resolveUserId(auth.getName());
+        Long uploaderId = userHelper.resolveUserId(auth.getName());
         if (uploaderId == null) {
             return ResponseEntity.status(403).body(Map.of("error", "Could not resolve uploader"));
         }
@@ -188,16 +191,6 @@ public class GalleryController {
     ) {
         List<ImageTagDto> tags = galleryService.removeTag(id, personId);
         return ResponseEntity.ok(tags);
-    }
-
-    // ── Helpers ─────────────────────────────────────────────────────────────────
-
-    private Long resolveUserId(String username) {
-        var rec = dsl.select(USERS.ID)
-                .from(USERS)
-                .where(USERS.USERNAME.eq(username))
-                .fetchOne();
-        return rec != null ? rec.value1() : null;
     }
 
     // ── Request body for PUT ────────────────────────────────────────────────────

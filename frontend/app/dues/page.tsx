@@ -16,6 +16,11 @@ import {
   Checkbox,
   FormControlLabel,
   Paper,
+  Collapse,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
 import PaymentIcon from '@mui/icons-material/Payment';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -27,6 +32,7 @@ import SaveIcon from '@mui/icons-material/Save';
 import SettingsIcon from '@mui/icons-material/Settings';
 import { apiFetch } from '../lib/api';
 import { useFamilyName } from '../lib/FamilyNameContext';
+import PersonAutocomplete from '../components/PersonAutocomplete';
 import type { DuesPageDto, DuesBatchDto, DuePeriodResponse, DuePeriodDto } from '../lib/types';
 
 /** Dues amount in cents — $25. Display-only; server enforces actual amount. */
@@ -35,6 +41,11 @@ const DUES_AMOUNT_CENTS = 2500;
 interface GuestEntry {
   name: string;
   age: string;
+}
+
+interface OnBehalfEntry {
+  personId: number;
+  displayName: string;
 }
 
 export default function DuesPage() {
@@ -54,12 +65,15 @@ export default function DuesPage() {
   const [periodEnd, setPeriodEnd] = useState('');
   const [savingPeriod, setSavingPeriod] = useState(false);
   const [periodActive, setPeriodActive] = useState<boolean | undefined>(undefined);
+  const [periodEditOpen, setPeriodEditOpen] = useState(false);
+  const [confirmSaveOpen, setConfirmSaveOpen] = useState(false);
 
   // ── Pay-on-behalf state ──
   const [payForSelf, setPayForSelf] = useState(false);
   const [guests, setGuests] = useState<GuestEntry[]>([]);
   const [guestName, setGuestName] = useState('');
   const [guestAge, setGuestAge] = useState('');
+  const [onBehalfEntries, setOnBehalfEntries] = useState<OnBehalfEntry[]>([]);
   const [, setBatchResult] = useState<DuesBatchDto | null>(null);
 
   const loadDuesPage = useCallback(async () => {
@@ -146,7 +160,7 @@ export default function DuesPage() {
             const data = await apiFetch<DuesPageDto>('/api/dues');
             setPageData(data);
             // Check if any payments were confirmed since returning
-            if (data.selfPaid || data.guestPayments.length > 0) {
+            if (data.selfPaid || data.guestPayments.length > 0 || data.onBehalfPayments.length > 0) {
               setVerifying(false);
               pollingRef.current = false;
               setSnack({ msg: 'Payment confirmed! Thank you!', severity: 'success' });
@@ -180,6 +194,21 @@ export default function DuesPage() {
       setSnack({ msg: 'Please enter a valid age', severity: 'error' });
       return;
     }
+    // Prevent same-session duplicate by name (case-insensitive)
+    if (guests.some(g => g.name.toLowerCase() === trimmedName.toLowerCase())) {
+      setSnack({ msg: `"${trimmedName}" is already in your list`, severity: 'error' });
+      return;
+    }
+    // Warn if name matches an existing guest payment (any status)
+    const existingGuest = pageData?.guestPayments.find(
+      gp => gp.guestName?.toLowerCase() === trimmedName.toLowerCase()
+    );
+    if (existingGuest) {
+      const statusLabel = existingGuest.status === 'COMPLETED' ? 'paid' :
+                          existingGuest.status === 'PENDING' ? 'pending' : 'recorded';
+      setSnack({ msg: `"${trimmedName}" already has a ${statusLabel} payment for this year`, severity: 'error' });
+      return;
+    }
     setGuests(prev => [...prev, { name: trimmedName, age: guestAge }]);
     setGuestName('');
     setGuestAge('');
@@ -189,7 +218,26 @@ export default function DuesPage() {
     setGuests(prev => prev.filter((_, i) => i !== index));
   };
 
-  const totalPeople = (payForSelf && !pageData?.selfPaid ? 1 : 0) + guests.length;
+  const addOnBehalf = (person: { personId: number; displayName: string } | null) => {
+    if (!person) return;
+    // Prevent duplicates in current cart
+    if (onBehalfEntries.some(e => e.personId === person.personId)) {
+      setSnack({ msg: 'This person is already in your list', severity: 'error' });
+      return;
+    }
+    // Prevent paying for someone who already has COMPLETED or PENDING dues this year
+    if (pageData?.paidPersonIds?.includes(person.personId)) {
+      setSnack({ msg: `${person.displayName}'s dues are already paid or pending for this year`, severity: 'error' });
+      return;
+    }
+    setOnBehalfEntries(prev => [...prev, { personId: person.personId, displayName: person.displayName }]);
+  };
+
+  const removeOnBehalf = (index: number) => {
+    setOnBehalfEntries(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const totalPeople = (payForSelf && !pageData?.selfPaid ? 1 : 0) + guests.length + onBehalfEntries.length;
   const totalCents = totalPeople * DUES_AMOUNT_CENTS;
 
   const handleCheckout = async () => {
@@ -206,6 +254,7 @@ export default function DuesPage() {
         body: {
           payForSelf: payForSelf && !pageData?.selfPaid,
           guests: guests.map(g => ({ name: g.name, age: parseInt(g.age, 10) })),
+          onBehalf: onBehalfEntries.map(e => ({ personId: e.personId, userId: null })),
         },
       });
 
@@ -267,82 +316,128 @@ export default function DuesPage() {
 
       {/* ── Admin: Reunion Due Period Config ── */}
       {isAdmin && (
-        <Paper
-          elevation={0}
-          sx={{
-            mb: 4,
-            p: 3,
-            border: '1px solid var(--color-primary-200)',
-            borderRadius: 'var(--radius-md)',
-            bgcolor: 'var(--color-primary-50)',
-          }}
-        >
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-            <SettingsIcon sx={{ color: 'var(--color-primary-500)' }} />
-            <Typography variant="h6" sx={{ fontWeight: 700 }}>
-              Reunion Due Period
-            </Typography>
-            <Chip label="Admin" size="small" color="secondary" sx={{ ml: 'auto' }} />
-          </Box>
+        <Box sx={{ mb: 4 }}>
+          <Button
+            variant="outlined"
+            onClick={() => setPeriodEditOpen(o => !o)}
+            startIcon={<SettingsIcon />}
+            sx={{
+              mb: periodEditOpen ? 2 : 0,
+              borderColor: 'var(--color-primary-300)',
+              color: 'var(--color-primary-600)',
+            }}
+          >
+            {periodEditOpen ? 'Hide' : 'Edit'} Reunion Due Period
+          </Button>
 
-          <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mb: 2.5 }}>
-            Set the date range during which dues payments apply to a specific reunion year.
-            After the end date, payments will count toward the next reunion year.
-          </Typography>
-
-          <Stack spacing={2}>
-            <TextField
-              label="Reunion Year"
-              type="number"
-              value={periodYear}
-              onChange={(e) => setPeriodYear(e.target.value)}
-              size="small"
-              fullWidth
-              slotProps={{ htmlInput: { min: 2000, max: 2100 } }}
-            />
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <TextField
-                label="Start Date"
-                type="date"
-                value={periodStart}
-                onChange={(e) => setPeriodStart(e.target.value)}
-                size="small"
-                fullWidth
-                slotProps={{ inputLabel: { shrink: true } }}
-              />
-              <TextField
-                label="End Date"
-                type="date"
-                value={periodEnd}
-                onChange={(e) => setPeriodEnd(e.target.value)}
-                size="small"
-                fullWidth
-                slotProps={{ inputLabel: { shrink: true } }}
-              />
-            </Stack>
-            <Button
-              variant="contained"
-              onClick={handleSavePeriod}
-              disabled={savingPeriod || !periodYear || !periodStart || !periodEnd}
-              startIcon={savingPeriod ? <CircularProgress size={16} /> : <SaveIcon />}
+          <Collapse in={periodEditOpen}>
+            <Paper
+              elevation={0}
               sx={{
-                alignSelf: 'flex-start',
-                bgcolor: 'var(--color-primary-500)',
-                '&:hover': { bgcolor: 'var(--color-primary-600)' },
+                p: 3,
+                border: '1px solid var(--color-primary-200)',
+                borderRadius: 'var(--radius-md)',
+                bgcolor: 'var(--color-primary-50)',
               }}
             >
-              {savingPeriod ? 'Saving...' : 'Save Period'}
-            </Button>
-          </Stack>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                <SettingsIcon sx={{ color: 'var(--color-primary-500)' }} />
+                <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                  Reunion Due Period
+                </Typography>
+                <Chip label="Admin" size="small" color="secondary" sx={{ ml: 'auto' }} />
+              </Box>
 
-          {periodData?.configured && (
-            <Alert severity={periodActive ? 'success' : 'warning'} sx={{ mt: 2, borderRadius: 'var(--radius-md)' }}>
-              {periodActive
-                ? `Dues period is active. Payments are being accepted for the ${periodYear} reunion.`
-                : `Dues period has ended. The configured period was ${periodStart} to ${periodEnd}. Payments now count toward the current calendar year.`}
-            </Alert>
-          )}
-        </Paper>
+              <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mb: 2.5 }}>
+                Set the date range during which dues payments apply to a specific reunion year.
+                After the end date, payments will count toward the next reunion year.
+              </Typography>
+
+              <Stack spacing={2}>
+                <TextField
+                  label="Reunion Year"
+                  type="number"
+                  value={periodYear}
+                  onChange={(e) => setPeriodYear(e.target.value)}
+                  size="small"
+                  fullWidth
+                  slotProps={{ htmlInput: { min: 2000, max: 2100 } }}
+                />
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                  <TextField
+                    label="Start Date"
+                    type="date"
+                    value={periodStart}
+                    onChange={(e) => setPeriodStart(e.target.value)}
+                    size="small"
+                    fullWidth
+                    slotProps={{ inputLabel: { shrink: true } }}
+                  />
+                  <TextField
+                    label="End Date"
+                    type="date"
+                    value={periodEnd}
+                    onChange={(e) => setPeriodEnd(e.target.value)}
+                    size="small"
+                    fullWidth
+                    slotProps={{ inputLabel: { shrink: true } }}
+                  />
+                </Stack>
+                <Button
+                  variant="contained"
+                  onClick={() => setConfirmSaveOpen(true)}
+                  disabled={savingPeriod || !periodYear || !periodStart || !periodEnd}
+                  startIcon={savingPeriod ? <CircularProgress size={16} /> : <SaveIcon />}
+                  sx={{
+                    alignSelf: 'flex-start',
+                    bgcolor: 'var(--color-primary-500)',
+                    '&:hover': { bgcolor: 'var(--color-primary-600)' },
+                  }}
+                >
+                  {savingPeriod ? 'Saving...' : 'Save Period'}
+                </Button>
+              </Stack>
+
+              {periodData?.configured && (
+                <Alert severity={periodActive ? 'success' : 'warning'} sx={{ mt: 2, borderRadius: 'var(--radius-md)' }}>
+                  {periodActive
+                    ? `Dues period is active. Payments are being accepted for the ${periodYear} reunion.`
+                    : `Dues period has ended. The configured period was ${periodStart} to ${periodEnd}. Payments now count toward the current calendar year.`}
+                </Alert>
+              )}
+            </Paper>
+          </Collapse>
+
+          {/* Confirmation dialog */}
+          <Dialog open={confirmSaveOpen} onClose={() => setConfirmSaveOpen(false)}>
+            <DialogTitle>Update Reunion Due Period?</DialogTitle>
+            <DialogContent>
+              <Typography variant="body2" sx={{ mb: 1 }}>
+                Are you sure you want to save this due period?
+              </Typography>
+              <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>
+                This will set the <strong>{periodYear}</strong> reunion dues window
+                to <strong>{periodStart}</strong> through <strong>{periodEnd}</strong>.
+                All dues payments made during this window will be attributed to
+                the {periodYear} reunion year. Payments outside this window will
+                default to the current calendar year.
+              </Typography>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setConfirmSaveOpen(false)}>Cancel</Button>
+              <Button
+                variant="contained"
+                onClick={() => { setConfirmSaveOpen(false); handleSavePeriod(); }}
+                sx={{
+                  bgcolor: 'var(--color-primary-500)',
+                  '&:hover': { bgcolor: 'var(--color-primary-600)' },
+                }}
+              >
+                Save Period
+              </Button>
+            </DialogActions>
+          </Dialog>
+        </Box>
       )}
 
       {loading ? (
@@ -407,6 +502,44 @@ export default function DuesPage() {
                   )}
                 </Stack>
               </Box>
+            ) : pageData?.selfPaid && pageData.paidForYouPayment ? (
+              <Box sx={{ textAlign: 'center' }}>
+                <CheckCircleIcon sx={{ fontSize: 48, color: '#2e7d32', mb: 1 }} />
+                <Typography variant="h6" sx={{ fontWeight: 700, color: '#2e7d32', mb: 1 }}>
+                  Paid!
+                </Typography>
+                <Stack spacing={1} sx={{ textAlign: 'left', maxWidth: 340, mx: 'auto' }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>Amount</Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      {formatCents(pageData.paidForYouPayment.amountCents)}
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>Status</Typography>
+                    <Chip label="Completed" size="small" color="success" variant="outlined" />
+                  </Box>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>Paid by</Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      {pageData.paidForYouPayment.paidByName ?? 'A family member'}
+                    </Typography>
+                  </Box>
+                  {pageData.paidForYouPayment.paidAt && (
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>Paid on</Typography>
+                      <Typography variant="body2">
+                        {new Date(pageData.paidForYouPayment.paidAt).toLocaleDateString()}
+                      </Typography>
+                    </Box>
+                  )}
+                </Stack>
+                <Alert severity="info" sx={{ mt: 2, borderRadius: 'var(--radius-md)', textAlign: 'left' }}>
+                  <Typography variant="body2">
+                    Your dues were covered by {pageData.paidForYouPayment.paidByName ?? 'a family member'}. Thank you!
+                  </Typography>
+                </Alert>
+              </Box>
             ) : (
               <Box
                 sx={{
@@ -433,7 +566,7 @@ export default function DuesPage() {
           {/* ══════════════════════════════════════════════
               Section 2: Family Members You've Paid For
              ══════════════════════════════════════════════ */}
-          {pageData && pageData.guestPayments.length > 0 && (
+          {pageData && (pageData.guestPayments.length > 0 || pageData.onBehalfPayments.length > 0) && (
             <Box className="card" sx={{ p: { xs: 3, sm: 4 } }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
                 <GroupIcon sx={{ color: 'var(--color-primary-400)' }} />
@@ -441,7 +574,37 @@ export default function DuesPage() {
                   Family Members You&apos;ve Paid For
                 </Typography>
               </Box>
-              <Stack spacing={1}>
+              <Stack spacing={1} sx={{ maxHeight: 240, overflowY: 'auto' }}>
+                {pageData.onBehalfPayments.map(op => (
+                  <Box
+                    key={op.id}
+                    sx={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      py: 1,
+                      px: 2,
+                      borderRadius: 'var(--radius-sm)',
+                      bgcolor: op.status === 'FAILED' ? 'var(--color-error-50, #fef2f2)' : 'var(--color-primary-50)',
+                    }}
+                  >
+                    <Box>
+                      <Typography sx={{ fontWeight: 600 }}>{op.displayName}</Typography>
+                      <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>
+                        {formatCents(op.amountCents)}
+                        {op.status === 'COMPLETED' && op.paidAt && ` • Paid ${new Date(op.paidAt).toLocaleDateString()}`}
+                        {op.status === 'PENDING' && ' • Payment processing'}
+                        {op.status === 'FAILED' && ` • ${op.notes || 'Payment failed'}`}
+                      </Typography>
+                    </Box>
+                    <Chip
+                      label={op.status === 'COMPLETED' ? 'Paid' : op.status === 'PENDING' ? 'Pending' : 'Failed'}
+                      size="small"
+                      color={op.status === 'COMPLETED' ? 'success' : op.status === 'PENDING' ? 'warning' : 'error'}
+                      variant="outlined"
+                    />
+                  </Box>
+                ))}
                 {pageData.guestPayments.map(gp => (
                   <Box
                     key={gp.id}
@@ -452,16 +615,23 @@ export default function DuesPage() {
                       py: 1,
                       px: 2,
                       borderRadius: 'var(--radius-sm)',
-                      bgcolor: 'var(--color-primary-50)',
+                      bgcolor: gp.status === 'FAILED' ? 'var(--color-error-50, #fef2f2)' : 'var(--color-primary-50)',
                     }}
                   >
                     <Box>
                       <Typography sx={{ fontWeight: 600 }}>{gp.guestName}</Typography>
                       <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>
                         Age {gp.guestAge} &bull; {formatCents(gp.amountCents)}
+                        {gp.status === 'PENDING' && ' • Payment processing'}
+                        {gp.status === 'FAILED' && ` • ${gp.notes || 'Payment failed'}`}
                       </Typography>
                     </Box>
-                    <Chip label="Paid" size="small" color="success" variant="outlined" />
+                    <Chip
+                      label={gp.status === 'COMPLETED' ? 'Paid' : gp.status === 'PENDING' ? 'Pending' : 'Failed'}
+                      size="small"
+                      color={gp.status === 'COMPLETED' ? 'success' : gp.status === 'PENDING' ? 'warning' : 'error'}
+                      variant="outlined"
+                    />
                   </Box>
                 ))}
               </Stack>
@@ -480,7 +650,7 @@ export default function DuesPage() {
             </Box>
 
             <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mb: 2 }}>
-              Pay your own dues and/or pay on behalf of family members who may not have accounts.
+              Pay your own dues and/or pay on behalf of family members.
               Each person&apos;s dues are {formatCents(DUES_AMOUNT_CENTS)}.
             </Typography>
 
@@ -566,6 +736,59 @@ export default function DuesPage() {
                     <IconButton
                       size="small"
                       onClick={() => removeGuest(i)}
+                      sx={{ color: 'var(--color-error-500)' }}
+                    >
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </Box>
+                ))}
+              </Stack>
+            )}
+
+            <Divider sx={{ my: 2 }} />
+
+            {/* Pay for a registered family member */}
+            <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1.5 }}>
+              Pay for a Registered Family Member
+            </Typography>
+            <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mb: 1.5 }}>
+              Search for someone who has a profile in the family tree.
+            </Typography>
+            <Box sx={{ mb: 2 }}>
+              <PersonAutocomplete
+                label="Search by name"
+                value={null}
+                onChange={() => { /* handled by onChangeFull */ }}
+                onChangeFull={addOnBehalf}
+                placeholder="Type a name to search…"
+              />
+            </Box>
+
+            {/* On-behalf list */}
+            {onBehalfEntries.length > 0 && (
+              <Stack spacing={1} sx={{ mb: 2 }}>
+                {onBehalfEntries.map((entry, i) => (
+                  <Box
+                    key={entry.personId}
+                    sx={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      py: 1,
+                      px: 2,
+                      borderRadius: 'var(--radius-sm)',
+                      bgcolor: 'var(--color-primary-50)',
+                    }}
+                  >
+                    <Box>
+                      <Typography sx={{ fontWeight: 600 }}>{entry.displayName}</Typography>
+                      <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>
+                        {formatCents(DUES_AMOUNT_CENTS)}
+                      </Typography>
+                    </Box>
+                    <IconButton
+                      size="small"
+                      onClick={() => removeOnBehalf(i)}
                       sx={{ color: 'var(--color-error-500)' }}
                     >
                       <DeleteIcon fontSize="small" />

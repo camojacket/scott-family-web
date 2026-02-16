@@ -75,12 +75,14 @@ public class ObituaryService {
 
     // â”€â”€ Queries â”€â”€
 
-    /** All obituaries with their tagged people, sorted by title */
-    public List<ObituaryDto> getAll() {
-        // Fetch all obituaries
+    /** All obituaries with their tagged people, sorted by title. Supports pagination. */
+    public List<ObituaryDto> getAll(int offset, int limit) {
+        // Fetch obituaries with pagination
         var rows = dsl.select(O_ID, O_TITLE, O_FILE_URL, O_FILE_TYPE, O_CREATED_AT, O_UPDATED_AT)
                 .from(OBITUARY)
                 .orderBy(O_TITLE.asc())
+                .offset(offset)
+                .limit(limit)
                 .fetch();
 
         // Fetch all tags in one query
@@ -107,6 +109,11 @@ public class ObituaryService {
                 r.get(O_CREATED_AT) != null ? r.get(O_CREATED_AT).toString() : null,
                 r.get(O_UPDATED_AT) != null ? r.get(O_UPDATED_AT).toString() : null
         )).toList();
+    }
+
+    /** Backward-compatible overload – returns first 100 obituaries */
+    public List<ObituaryDto> getAll() {
+        return getAll(0, 100);
     }
 
     /** Get obituaries tagged to a specific person */

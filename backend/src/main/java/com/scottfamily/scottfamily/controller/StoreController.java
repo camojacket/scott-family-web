@@ -5,7 +5,7 @@ import com.scottfamily.scottfamily.service.OrderService;
 import com.scottfamily.scottfamily.service.OrderService.*;
 import com.scottfamily.scottfamily.service.StoreService;
 import com.scottfamily.scottfamily.service.StoreService.*;
-import org.jooq.DSLContext;
+import com.scottfamily.scottfamily.service.UserHelper;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -13,13 +13,12 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import jakarta.validation.Valid;
 
 import java.io.IOException;
 
 import java.util.List;
 import java.util.Map;
-
-import static com.yourproject.generated.scott_family_web.Tables.USERS;
 
 /**
  * REST API for the store (shirts/merch) and orders.
@@ -49,14 +48,14 @@ public class StoreController {
     private final StoreService storeService;
     private final OrderService orderService;
     private final CdnUploadService cdnUploadService;
-    private final DSLContext dsl;
+    private final UserHelper userHelper;
 
     public StoreController(StoreService storeService, OrderService orderService,
-                           CdnUploadService cdnUploadService, DSLContext dsl) {
+                           CdnUploadService cdnUploadService, UserHelper userHelper) {
         this.storeService = storeService;
         this.orderService = orderService;
         this.cdnUploadService = cdnUploadService;
-        this.dsl = dsl;
+        this.userHelper = userHelper;
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -81,10 +80,10 @@ public class StoreController {
 
     @PostMapping("/orders")
     public ResponseEntity<?> createOrder(
-            @RequestBody CreateOrderRequest request,
+            @Valid @RequestBody CreateOrderRequest request,
             Authentication auth
     ) {
-        Long userId = resolveUserId(auth.getName());
+        Long userId = userHelper.resolveUserId(auth.getName());
         if (userId == null) return ResponseEntity.status(403).body(Map.of("error", "Could not resolve user"));
 
         try {
@@ -98,10 +97,10 @@ public class StoreController {
     @PostMapping("/orders/{id}/confirm")
     public ResponseEntity<?> confirmOrder(
             @PathVariable Long id,
-            @RequestBody ConfirmOrderRequest request,
+            @Valid @RequestBody ConfirmOrderRequest request,
             Authentication auth
     ) {
-        Long userId = resolveUserId(auth.getName());
+        Long userId = userHelper.resolveUserId(auth.getName());
         if (userId == null) return ResponseEntity.status(403).body(Map.of("error", "Could not resolve user"));
 
         OrderDto order = orderService.getOrder(id);
@@ -126,7 +125,7 @@ public class StoreController {
 
     @GetMapping("/orders/mine")
     public ResponseEntity<?> getMyOrders(Authentication auth) {
-        Long userId = resolveUserId(auth.getName());
+        Long userId = userHelper.resolveUserId(auth.getName());
         if (userId == null) return ResponseEntity.status(403).body(Map.of("error", "Could not resolve user"));
         return ResponseEntity.ok(orderService.getOrdersByUser(userId));
     }
@@ -137,13 +136,15 @@ public class StoreController {
 
     @PreAuthorize("hasRole('ADMIN')")
     @GetMapping("/admin/products")
-    public List<ProductDto> adminListProducts() {
-        return storeService.listAllProducts();
+    public List<ProductDto> adminListProducts(
+            @RequestParam(defaultValue = "0") int offset,
+            @RequestParam(defaultValue = "200") int limit) {
+        return storeService.listAllProducts(offset, Math.min(limit, 200));
     }
 
     @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/admin/products")
-    public ResponseEntity<?> adminCreateProduct(@RequestBody CreateProductRequest request) {
+    public ResponseEntity<?> adminCreateProduct(@Valid @RequestBody CreateProductRequest request) {
         ProductDto p = storeService.createProduct(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(p);
     }
@@ -152,7 +153,7 @@ public class StoreController {
     @PutMapping("/admin/products/{id}")
     public ResponseEntity<?> adminUpdateProduct(
             @PathVariable Long id,
-            @RequestBody UpdateProductRequest request
+            @Valid @RequestBody UpdateProductRequest request
     ) {
         ProductDto p = storeService.updateProduct(id, request);
         if (p == null) return ResponseEntity.notFound().build();
@@ -174,7 +175,7 @@ public class StoreController {
     @PostMapping("/admin/products/{id}/variants")
     public ResponseEntity<?> adminAddVariant(
             @PathVariable Long id,
-            @RequestBody CreateVariantRequest request
+            @Valid @RequestBody CreateVariantRequest request
     ) {
         VariantDto v = storeService.createVariant(id, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(v);
@@ -184,7 +185,7 @@ public class StoreController {
     @PutMapping("/admin/variants/{id}")
     public ResponseEntity<?> adminUpdateVariant(
             @PathVariable Long id,
-            @RequestBody UpdateVariantRequest request
+            @Valid @RequestBody UpdateVariantRequest request
     ) {
         VariantDto v = storeService.updateVariant(id, request);
         if (v == null) return ResponseEntity.notFound().build();
@@ -223,11 +224,15 @@ public class StoreController {
 
     @PreAuthorize("hasRole('ADMIN')")
     @GetMapping("/admin/orders")
-    public List<OrderDto> adminListOrders(@RequestParam(required = false) String status) {
+    public List<OrderDto> adminListOrders(
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "0") int offset,
+            @RequestParam(defaultValue = "200") int limit) {
+        int capped = Math.min(limit, 200);
         if (status != null && !status.isBlank()) {
-            return orderService.listOrdersByStatus(status);
+            return orderService.listOrdersByStatus(status, offset, capped);
         }
-        return orderService.listAllOrders();
+        return orderService.listAllOrders(offset, capped);
     }
 
     @PreAuthorize("hasRole('ADMIN')")
@@ -243,16 +248,6 @@ public class StoreController {
         } catch (IllegalStateException e) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
         }
-    }
-
-    // ── Helpers ──
-
-    private Long resolveUserId(String username) {
-        var rec = dsl.select(USERS.ID)
-                .from(USERS)
-                .where(USERS.USERNAME.eq(username))
-                .fetchOne();
-        return rec != null ? rec.value1() : null;
     }
 
     // ── Request DTOs ──

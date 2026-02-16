@@ -45,6 +45,7 @@ import InstagramIcon from '@mui/icons-material/Instagram';
 import CloseIcon from '@mui/icons-material/Close';
 import ErrorBoundary from './ErrorBoundary';
 import AnnouncementBanner from './AnnouncementBanner';
+import NotificationBell from './NotificationBell';
 import SessionTimeoutDialog from './SessionTimeoutDialog';
 import { useSessionTimeout } from '../lib/useSessionTimeout';
 import { useFamilyName } from '../lib/FamilyNameContext';
@@ -104,6 +105,7 @@ export default function Navigation({ children }: { children: React.ReactNode }) 
   // Auth/UI state
   const [isAdmin, setIsAdmin] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
 
   // Session timeout management
   const sessionTimeout = useSessionTimeout();
@@ -115,6 +117,7 @@ export default function Navigation({ children }: { children: React.ReactNode }) 
         if (!raw) {
           setIsLoggedIn(false);
           setIsAdmin(false);
+          setAuthChecked(true);
           return;
         }
         const p = JSON.parse(raw);
@@ -122,9 +125,11 @@ export default function Navigation({ children }: { children: React.ReactNode }) 
         const admin = role === 'ROLE_ADMIN' || role === 'ADMIN';
         setIsLoggedIn(true);
         setIsAdmin(!!admin);
+        setAuthChecked(true);
       } catch {
         setIsLoggedIn(false);
         setIsAdmin(false);
+        setAuthChecked(true);
       }
     };
 
@@ -214,7 +219,10 @@ export default function Navigation({ children }: { children: React.ReactNode }) 
       >
         <Container maxWidth="lg">
           <Toolbar disableGutters sx={{ minHeight: { xs: 52, sm: 56 }, gap: 0.5 }}>
-            {!isLoggedIn ? (
+            {!authChecked ? (
+              /* Show nothing until auth state is determined */
+              <Box sx={{ width: '100%', minHeight: 36 }} />
+            ) : !isLoggedIn ? (
               <Stack direction="row" spacing={1.5} sx={{ width: '100%', justifyContent: 'center' }}>
                 <Link href="/login">
                   <Button
@@ -248,13 +256,16 @@ export default function Navigation({ children }: { children: React.ReactNode }) 
                 <Typography variant="body2" sx={{ fontWeight: 600, color: 'var(--color-primary-700)' }}>
                   Menu
                 </Typography>
-                <IconButton
-                  onClick={() => setDrawerOpen(true)}
-                  aria-label="Open navigation menu"
-                  sx={{ color: 'var(--color-primary-600)' }}
-                >
-                  <MenuIcon />
-                </IconButton>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <NotificationBell />
+                  <IconButton
+                    onClick={() => setDrawerOpen(true)}
+                    aria-label="Open navigation menu"
+                    sx={{ color: 'var(--color-primary-600)' }}
+                  >
+                    <MenuIcon />
+                  </IconButton>
+                </Box>
               </Box>
             ) : (
               /* Desktop: horizontal nav */
@@ -319,6 +330,9 @@ export default function Navigation({ children }: { children: React.ReactNode }) 
                     Admin
                   </Button>
                 )}
+
+                {/* Notification bell for logged-in users */}
+                <NotificationBell />
               </Box>
             )}
           </Toolbar>

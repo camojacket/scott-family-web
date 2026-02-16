@@ -3,16 +3,15 @@ package com.scottfamily.scottfamily.controller;
 import com.scottfamily.scottfamily.service.RsvpService;
 import com.scottfamily.scottfamily.service.RsvpService.RsvpDto;
 import com.scottfamily.scottfamily.service.RsvpService.RsvpSummary;
-import org.jooq.DSLContext;
+import com.scottfamily.scottfamily.service.UserHelper;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import jakarta.validation.Valid;
 import java.util.List;
 import java.util.Map;
-
-import static com.yourproject.generated.scott_family_web.Tables.USERS;
 
 /**
  * REST API for reunion RSVPs.
@@ -28,17 +27,17 @@ import static com.yourproject.generated.scott_family_web.Tables.USERS;
 public class RsvpController {
 
     private final RsvpService rsvpService;
-    private final DSLContext dsl;
+    private final UserHelper userHelper;
 
-    public RsvpController(RsvpService rsvpService, DSLContext dsl) {
+    public RsvpController(RsvpService rsvpService, UserHelper userHelper) {
         this.rsvpService = rsvpService;
-        this.dsl = dsl;
+        this.userHelper = userHelper;
     }
 
     /** Get the authenticated user's RSVP (or 204 if none yet). */
     @GetMapping
     public ResponseEntity<?> getMyRsvp(Authentication auth) {
-        Long userId = resolveUserId(auth.getName());
+        Long userId = userHelper.resolveUserId(auth.getName());
         if (userId == null) {
             return ResponseEntity.status(403).body(Map.of("error", "Could not resolve user"));
         }
@@ -53,10 +52,10 @@ public class RsvpController {
     /** Create or update the authenticated user's RSVP. */
     @PutMapping
     public ResponseEntity<?> upsertRsvp(
-            @RequestBody RsvpRequest request,
+            @Valid @RequestBody RsvpRequest request,
             Authentication auth
     ) {
-        Long userId = resolveUserId(auth.getName());
+        Long userId = userHelper.resolveUserId(auth.getName());
         if (userId == null) {
             return ResponseEntity.status(403).body(Map.of("error", "Could not resolve user"));
         }
@@ -70,11 +69,13 @@ public class RsvpController {
         return ResponseEntity.ok(rsvp);
     }
 
-    /** Admin: list all RSVPs. */
+    /** Admin: list all RSVPs (paginated). */
     @PreAuthorize("hasRole('ADMIN')")
     @GetMapping("/all")
-    public List<RsvpDto> listAll() {
-        return rsvpService.listAll();
+    public List<RsvpDto> listAll(
+            @RequestParam(defaultValue = "0") int offset,
+            @RequestParam(defaultValue = "200") int limit) {
+        return rsvpService.listAll(offset, Math.min(limit, 200));
     }
 
     /** Admin: get summary stats (attending count, guests, headcount). */
@@ -90,16 +91,6 @@ public class RsvpController {
     public ResponseEntity<?> resetAll() {
         int deleted = rsvpService.resetAll();
         return ResponseEntity.ok(Map.of("deleted", deleted));
-    }
-
-    // ── Helpers ──
-
-    private Long resolveUserId(String username) {
-        var rec = dsl.select(USERS.ID)
-                .from(USERS)
-                .where(USERS.USERNAME.eq(username))
-                .fetchOne();
-        return rec != null ? rec.value1() : null;
     }
 
     // ── Request DTO ──

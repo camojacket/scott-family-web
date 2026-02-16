@@ -1,18 +1,26 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Box,
   Button,
   Checkbox,
+  Chip,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
   FormControl,
+  FormControlLabel,
   InputLabel,
   Link,
   MenuItem,
   Select,
   Stack,
+  Switch,
   Tab,
   Table,
   TableBody,
@@ -23,9 +31,11 @@ import {
   TableRow,
   Tabs,
   Toolbar,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import { apiFetch } from '../lib/api';
+import AdminInquiriesTab from './AdminInquiriesTab';
 
 type PendingSignup = {
   id: number;
@@ -33,6 +43,8 @@ type PendingSignup = {
   email: string;
   displayName: string;
   requestedAt: string;
+  archivedClaimPersonId?: number | null;
+  archivedClaimDisplayName?: string | null;
 };
 
 type ChangeItem = {
@@ -131,6 +143,67 @@ export default function AdminPage() {
   const peopleIdsOnPage = pagedPeopleReqs.map(r => r.id);
   const isAllPeopleOnPage = peopleIdsOnPage.length > 0 && peopleIdsOnPage.every(id => selectedPeopleReqs.includes(id));
   const isSomePeopleOnPage = peopleIdsOnPage.some(id => selectedPeopleReqs.includes(id)) && !isAllPeopleOnPage;
+
+  // -------- Bypass approval toggles --------
+  const [bypassSignup, setBypassSignup] = useState(false);
+  const [bypassProfile, setBypassProfile] = useState(false);
+  const [bypassPeople, setBypassPeople] = useState(false);
+  const [bypassLoading, setBypassLoading] = useState(true);
+
+  // Load bypass settings once on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const settings = await apiFetch<Record<string, string>>('/api/settings', { method: 'GET' });
+        setBypassSignup(settings.bypass_signup_approval === 'true');
+        setBypassProfile(settings.bypass_profile_change_approval === 'true');
+        setBypassPeople(settings.bypass_people_request_approval === 'true');
+      } catch { /* ignore */ }
+      setBypassLoading(false);
+    })();
+  }, []);
+
+  const toggleBypass = async (key: string, current: boolean, setter: (v: boolean) => void) => {
+    const next = !current;
+    setter(next);
+    try {
+      await apiFetch('/api/settings', {
+        method: 'PUT',
+        body: { [key]: String(next) },
+      });
+    } catch {
+      setter(current); // revert on failure
+    }
+  };
+
+  // -------- Bypass confirmation dialog --------
+  const [bypassConfirmOpen, setBypassConfirmOpen] = useState(false);
+  const pendingBypassRef = useRef<{ key: string; current: boolean; setter: (v: boolean) => void } | null>(null);
+
+  const BYPASS_LABELS: Record<string, string> = {
+    bypass_signup_approval: 'signup approvals',
+    bypass_profile_change_approval: 'profile change approvals',
+    bypass_people_request_approval: 'people request approvals',
+  };
+
+  const requestToggleBypass = (key: string, current: boolean, setter: (v: boolean) => void) => {
+    pendingBypassRef.current = { key, current, setter };
+    setBypassConfirmOpen(true);
+  };
+
+  const handleBypassCancel = () => {
+    pendingBypassRef.current = null;
+    setBypassConfirmOpen(false);
+  };
+
+  const handleBypassProceed = () => {
+    if (pendingBypassRef.current) {
+      const { key, current, setter } = pendingBypassRef.current;
+      toggleBypass(key, current, setter);
+    }
+    pendingBypassRef.current = null;
+    setBypassConfirmOpen(false);
+  };
 
   // -------- Load data when switching tabs --------
   useEffect(() => {
@@ -436,13 +509,32 @@ export default function AdminPage() {
         <Tab label="Pending signups" />
         <Tab label="Profile modifications" />
         <Tab label="People requests" />
+        <Tab label="Inquiries" />
       </Tabs>
 
       {/* ---------- PENDING SIGNUPS ---------- */}
       {tab === 0 && (
         <Box className="card" sx={{ p: { xs: 2, sm: 3 } }}>
           <Typography variant="h6" sx={{ fontWeight: 700, color: 'var(--color-primary-700)' }}>Pending signups</Typography>
-          <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mb: 2 }}>Approve or reject new account requests</Typography>
+          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
+            <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>Approve or reject new account requests</Typography>
+            <Tooltip title="When enabled, new signups are automatically approved without admin review" arrow>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={bypassSignup}
+                    disabled={bypassLoading}
+                    onChange={() => requestToggleBypass('bypass_signup_approval', bypassSignup, setBypassSignup)}
+                    color="warning"
+                    size="small"
+                  />
+                }
+                label={<Typography variant="caption" sx={{ fontWeight: 600 }}>Bypass Approvals</Typography>}
+                labelPlacement="start"
+                sx={{ mr: 0 }}
+              />
+            </Tooltip>
+          </Stack>
             <Toolbar disableGutters sx={{ justifyContent: 'space-between', gap: 2, flexWrap: 'wrap', mb: 2 }}>
               <Stack direction="row" spacing={1}>
                 <Button
@@ -518,7 +610,18 @@ export default function AdminPage() {
                               <Checkbox checked={isSelected} onChange={() => toggleSignup(s.id)} />
                             </TableCell>
                             <TableCell>@{s.username}</TableCell>
-                            <TableCell>{s.displayName || '—'}</TableCell>
+                            <TableCell>
+                              {s.displayName || '—'}
+                              {s.archivedClaimPersonId && (
+                                <Chip
+                                  label={`Archived claim: ${s.archivedClaimDisplayName || `#${s.archivedClaimPersonId}`}`}
+                                  size="small"
+                                  color="warning"
+                                  variant="outlined"
+                                  sx={{ ml: 1, fontSize: '0.7rem' }}
+                                />
+                              )}
+                            </TableCell>
                             <TableCell>
                               {s.email ? (
                                 <Link href={`mailto:${s.email}`} target="_blank" rel="noreferrer">{s.email}</Link>
@@ -566,7 +669,25 @@ export default function AdminPage() {
       {tab === 1 && (
         <Box className="card" sx={{ p: { xs: 2, sm: 3 } }}>
           <Typography variant="h6" sx={{ fontWeight: 700, color: 'var(--color-primary-700)' }}>Pending profile change requests</Typography>
-          <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mb: 2 }}>Approve or reject requested profile updates</Typography>
+          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
+            <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>Approve or reject requested profile updates</Typography>
+            <Tooltip title="When enabled, profile changes are automatically applied without admin review" arrow>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={bypassProfile}
+                    disabled={bypassLoading}
+                    onChange={() => requestToggleBypass('bypass_profile_change_approval', bypassProfile, setBypassProfile)}
+                    color="warning"
+                    size="small"
+                  />
+                }
+                label={<Typography variant="caption" sx={{ fontWeight: 600 }}>Bypass Approvals</Typography>}
+                labelPlacement="start"
+                sx={{ mr: 0 }}
+              />
+            </Tooltip>
+          </Stack>
             <Toolbar disableGutters sx={{ justifyContent: 'space-between', gap: 2, flexWrap: 'wrap', mb: 2 }}>
               <Stack direction="row" spacing={1}>
                 <Button
@@ -688,7 +809,25 @@ export default function AdminPage() {
       {tab === 2 && (
         <Box className="card" sx={{ p: { xs: 2, sm: 3 } }}>
           <Typography variant="h6" sx={{ fontWeight: 700, color: 'var(--color-primary-700)' }}>People requests</Typography>
-          <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mb: 2 }}>Approve or reject user-submitted people add/update requests</Typography>
+          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
+            <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>Approve or reject user-submitted people add/update requests</Typography>
+            <Tooltip title="When enabled, people requests are automatically applied without admin review" arrow>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={bypassPeople}
+                    disabled={bypassLoading}
+                    onChange={() => requestToggleBypass('bypass_people_request_approval', bypassPeople, setBypassPeople)}
+                    color="warning"
+                    size="small"
+                  />
+                }
+                label={<Typography variant="caption" sx={{ fontWeight: 600 }}>Bypass Approvals</Typography>}
+                labelPlacement="start"
+                sx={{ mr: 0 }}
+              />
+            </Tooltip>
+          </Stack>
             <Toolbar disableGutters sx={{ justifyContent: 'space-between', gap: 2, flexWrap: 'wrap', mb: 2 }}>
               <Stack direction="row" spacing={1}>
                 <Button
@@ -814,6 +953,34 @@ export default function AdminPage() {
             )}
         </Box>
       )}
+      {/* ---------- INQUIRIES ---------- */}
+      {tab === 3 && (
+        <Box className="card" sx={{ p: { xs: 2, sm: 3 } }}>
+          <Typography variant="h6" sx={{ fontWeight: 700, color: 'var(--color-primary-700)' }}>Inquiries</Typography>
+          <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mb: 2 }}>View and respond to contact form messages</Typography>
+          <AdminInquiriesTab />
+        </Box>
+      )}
+
+      {/* ---------- BYPASS CONFIRMATION DIALOG ---------- */}
+      <Dialog open={bypassConfirmOpen} onClose={handleBypassCancel}>
+        <DialogTitle sx={{ fontWeight: 700 }}>
+          {pendingBypassRef.current && !pendingBypassRef.current.current
+            ? 'Enable bypass?'
+            : 'Disable bypass?'}
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            {pendingBypassRef.current && !pendingBypassRef.current.current
+              ? <>Are you sure you want to <strong>bypass {BYPASS_LABELS[pendingBypassRef.current?.key ?? ''] ?? 'approvals'}</strong>? All future submissions will be auto-approved without admin review.</>
+              : <>Are you sure you want to <strong>re-enable {BYPASS_LABELS[pendingBypassRef.current?.key ?? ''] ?? 'approvals'}</strong>? Future submissions will require admin review again.</>}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={handleBypassCancel} variant="outlined">Cancel</Button>
+          <Button onClick={handleBypassProceed} variant="contained" color="warning" autoFocus>Proceed</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

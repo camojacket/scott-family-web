@@ -32,6 +32,12 @@ public class AdminModerationController {
     private final MailService mail;
     private final PeopleService peopleService;
 
+    // Inline field refs for columns not yet in generated jOOQ classes
+    private static final org.jooq.Field<Long> U_ARCHIVED_CLAIM_PERSON_ID =
+            DSL.field(DSL.name("archived_claim_person_id"), Long.class);
+    private static final org.jooq.Field<Boolean> IS_ARCHIVED =
+            DSL.field(DSL.name("is_archived"), Boolean.class);
+
     public AdminModerationController(DSLContext dsl, MailService mail, PeopleService peopleService) {
         this.dsl = dsl;
         this.mail = mail;
@@ -49,7 +55,8 @@ public class AdminModerationController {
     public List<DTOs.PendingUserDto> getPendingSignups() {
         return dsl.select(Tables.USERS.ID, Tables.USERS.USERNAME, Tables.USERS.EMAIL,
                         Tables.USERS.REQUESTED_AT, Tables.USERS.PERSON_ID,
-                        PEOPLE.FIRST_NAME, PEOPLE.LAST_NAME)
+                        PEOPLE.FIRST_NAME, PEOPLE.LAST_NAME,
+                        U_ARCHIVED_CLAIM_PERSON_ID)
                 .from(Tables.USERS)
                 .leftJoin(PEOPLE).on(PEOPLE.ID.eq(Tables.USERS.PERSON_ID))
                 .where(Tables.USERS.APPROVED_AT.isNull())
@@ -59,6 +66,16 @@ public class AdminModerationController {
                     String lastName = r.get(PEOPLE.LAST_NAME);
                     String displayName = ((firstName != null ? firstName : "") + " " +
                             (lastName != null ? lastName : "")).trim();
+                    Long archivedClaimId = r.get(U_ARCHIVED_CLAIM_PERSON_ID);
+                    String archivedClaimDisplay = null;
+                    if (archivedClaimId != null) {
+                        var pRec = dsl.select(PEOPLE.FIRST_NAME, PEOPLE.LAST_NAME)
+                                .from(PEOPLE).where(PEOPLE.ID.eq(archivedClaimId)).fetchOne();
+                        if (pRec != null) {
+                            archivedClaimDisplay = ((pRec.get(PEOPLE.FIRST_NAME) != null ? pRec.get(PEOPLE.FIRST_NAME) : "") + " " +
+                                    (pRec.get(PEOPLE.LAST_NAME) != null ? pRec.get(PEOPLE.LAST_NAME) : "")).trim();
+                        }
+                    }
                     return new DTOs.PendingUserDto(
                             r.get(Tables.USERS.ID),
                             r.get(Tables.USERS.USERNAME),
@@ -70,7 +87,9 @@ public class AdminModerationController {
                                     .atZone(ZoneId.systemDefault())
                                     .toInstant()
                                     .truncatedTo(ChronoUnit.MILLIS)
-                                    .toString()
+                                    .toString(),
+                            archivedClaimId,
+                            archivedClaimDisplay
                     );
                 });
     }
@@ -83,6 +102,18 @@ public class AdminModerationController {
                     .set(Tables.USERS.APPROVED_AT, DSL.currentLocalDateTime())
                     .where(Tables.USERS.ID.eq(userId))
                     .execute();
+
+            // If this user claimed an archived profile, un-archive it upon approval
+            Long archivedClaimId = dsl.select(U_ARCHIVED_CLAIM_PERSON_ID)
+                    .from(Tables.USERS).where(Tables.USERS.ID.eq(userId))
+                    .fetchOne(U_ARCHIVED_CLAIM_PERSON_ID);
+            if (archivedClaimId != null) {
+                dsl.update(PEOPLE)
+                        .set(IS_ARCHIVED, false)
+                        .where(PEOPLE.ID.eq(archivedClaimId))
+                        .execute();
+            }
+
             if (r.getEmail() != null) mail.sendApprovalEmail(r.getEmail());
         }
         return ResponseEntity.ok().build();
@@ -94,9 +125,13 @@ public class AdminModerationController {
         if (user != null) {
             String email = user.getEmail();
             Long personId = user.getPersonId();
+            // Check if this was an archived claim — don't delete the original person row
+            Long archivedClaimId = dsl.select(U_ARCHIVED_CLAIM_PERSON_ID)
+                    .from(Tables.USERS).where(Tables.USERS.ID.eq(userId))
+                    .fetchOne(U_ARCHIVED_CLAIM_PERSON_ID);
             dsl.deleteFrom(Tables.USERS).where(Tables.USERS.ID.eq(userId)).execute();
-            // Clean up orphan PEOPLE row
-            if (personId != null) {
+            // Clean up orphan PEOPLE row — but NOT if it was an archived profile (it existed before the signup)
+            if (personId != null && archivedClaimId == null) {
                 dsl.deleteFrom(Tables.PEOPLE).where(Tables.PEOPLE.ID.eq(personId)).execute();
             }
             if (email != null) mail.sendRejectionEmail(email);
@@ -115,6 +150,19 @@ public class AdminModerationController {
                     .where(Tables.USERS.ID.in(body.ids()))
                     .execute();
 
+            // Un-archive any claimed archived profiles
+            var archivedClaimIds = dsl.select(U_ARCHIVED_CLAIM_PERSON_ID)
+                    .from(Tables.USERS)
+                    .where(Tables.USERS.ID.in(body.ids())
+                            .and(U_ARCHIVED_CLAIM_PERSON_ID.isNotNull()))
+                    .fetch(U_ARCHIVED_CLAIM_PERSON_ID);
+            if (!archivedClaimIds.isEmpty()) {
+                dsl.update(PEOPLE)
+                        .set(IS_ARCHIVED, false)
+                        .where(PEOPLE.ID.in(archivedClaimIds))
+                        .execute();
+            }
+
             dsl.selectFrom(Tables.USERS)
                     .where(Tables.USERS.ID.in(body.ids()))
                     .fetch()
@@ -126,15 +174,29 @@ public class AdminModerationController {
     @PostMapping("/reject")
     public ResponseEntity<Void> bulkReject(@RequestBody Ids body) {
         if (body.ids() != null && !body.ids().isEmpty()) {
-            var usersToReject = dsl.selectFrom(Tables.USERS)
+            // Gather user info before deletion
+            var usersToReject = dsl.select(Tables.USERS.ID, Tables.USERS.EMAIL,
+                    Tables.USERS.PERSON_ID, U_ARCHIVED_CLAIM_PERSON_ID)
+                    .from(Tables.USERS)
                     .where(Tables.USERS.ID.in(body.ids()))
                     .fetch();
-            var emails = usersToReject.stream().map(UsersRecord::getEmail).filter(e -> e != null).toList();
-            var personIds = usersToReject.stream().map(UsersRecord::getPersonId).filter(p -> p != null).toList();
+            var emails = usersToReject.stream()
+                    .map(r -> r.get(Tables.USERS.EMAIL))
+                    .filter(e -> e != null).toList();
+            // Only delete people rows that are NOT archived claims (those existed before signup)
+            var archivedClaimPersonIds = usersToReject.stream()
+                    .map(r -> r.get(U_ARCHIVED_CLAIM_PERSON_ID))
+                    .filter(id -> id != null)
+                    .collect(java.util.stream.Collectors.toSet());
+            var personIdsToDelete = usersToReject.stream()
+                    .map(r -> r.get(Tables.USERS.PERSON_ID))
+                    .filter(p -> p != null && !archivedClaimPersonIds.contains(p))
+                    .toList();
+
             dsl.deleteFrom(Tables.USERS).where(Tables.USERS.ID.in(body.ids())).execute();
-            // Clean up orphan PEOPLE rows
-            if (!personIds.isEmpty()) {
-                dsl.deleteFrom(Tables.PEOPLE).where(Tables.PEOPLE.ID.in(personIds)).execute();
+            // Clean up orphan PEOPLE rows (excluding archived profiles)
+            if (!personIdsToDelete.isEmpty()) {
+                dsl.deleteFrom(Tables.PEOPLE).where(Tables.PEOPLE.ID.in(personIdsToDelete)).execute();
             }
             emails.forEach(mail::sendRejectionEmail);
         }

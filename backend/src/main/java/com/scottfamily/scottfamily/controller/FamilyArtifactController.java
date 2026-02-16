@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import jakarta.validation.Valid;
 
 import com.scottfamily.scottfamily.service.CdnUploadService;
 import com.scottfamily.scottfamily.service.CdnUploadService.AssetKind;
@@ -59,7 +60,7 @@ public class FamilyArtifactController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<FamilyArtifactDto> update(
             @PathVariable Long id,
-            @RequestBody UpdateFamilyArtifactRequest req
+            @Valid @RequestBody UpdateFamilyArtifactRequest req
     ) {
         FamilyArtifactDto dto = familyArtifactService.update(id, req);
         if (dto == null) return ResponseEntity.notFound().build();

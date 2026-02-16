@@ -14,10 +14,13 @@ import org.jooq.impl.DSL;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
+import jakarta.validation.Valid;
 
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
+
+import com.scottfamily.scottfamily.service.SiteSettingsService;
 
 import static com.yourproject.generated.scott_family_web.tables.ProfileChangeRequests.PROFILE_CHANGE_REQUESTS;
 import static com.yourproject.generated.scott_family_web.tables.Users.USERS;
@@ -30,6 +33,8 @@ import static org.jooq.impl.DSL.*;
 public class ProfileChangeController {
 
     private final DSLContext dsl;
+    private final SiteSettingsService siteSettings;
+    private final AdminModerationController adminModerationController;
 
     private static final java.util.Set<String> ACCEPTED_FIELDS =
             java.util.Set.of("mother_id", "father_id", "add_child", "add_sibling", "add_spouse");
@@ -47,7 +52,7 @@ public class ProfileChangeController {
      * (except add_child, which allows multiple).
      */
     @PostMapping
-    public void submit(@RequestBody ProfileChangeSubmitRequest body) {
+    public void submit(@Valid @RequestBody ProfileChangeSubmitRequest body) {
 
         String username = currentUsername();
         if (username == null || body == null || body.changes == null || body.changes.isEmpty()) return;
@@ -165,14 +170,20 @@ public class ProfileChangeController {
             }
 
             // Insert PENDING request
-            dsl.insertInto(PROFILE_CHANGE_REQUESTS)
+            Long requestId = dsl.insertInto(PROFILE_CHANGE_REQUESTS)
                     .set(PROFILE_CHANGE_REQUESTS.USER_ID, me.getId())
                     .set(PROFILE_CHANGE_REQUESTS.FIELD, field)
                     .set(PROFILE_CHANGE_REQUESTS.OLD_VALUE, oldValue)
                     .set(PROFILE_CHANGE_REQUESTS.NEW_VALUE, c.newValue)
                     .set(PROFILE_CHANGE_REQUESTS.STATUS, "PENDING")
                     .set(PROFILE_CHANGE_REQUESTS.REQUESTED_AT, currentOffsetDateTime())
-                    .execute();
+                    .returning(PROFILE_CHANGE_REQUESTS.ID)
+                    .fetchOne(PROFILE_CHANGE_REQUESTS.ID);
+
+            // Auto-approve if bypass is enabled
+            if (requestId != null && siteSettings.isEnabled(SiteSettingsService.BYPASS_PROFILE_CHANGE_APPROVAL)) {
+                adminModerationController.approveProfileChange(requestId);
+            }
         }
     }
 

@@ -40,6 +40,8 @@ public class PeopleService {
             DSL.field(DSL.name("location"), String.class);
     private static final org.jooq.Field<Boolean> IS_DECEASED =
             DSL.field(DSL.name("is_deceased"), Boolean.class);
+    private static final org.jooq.Field<Boolean> IS_ARCHIVED =
+            DSL.field(DSL.name("is_archived"), Boolean.class);
 
     /**
      * Build a full display name from all name parts, with optional birth–death year suffix.
@@ -62,14 +64,27 @@ public class PeopleService {
     }
 
     public List<DTOs.PersonSummaryDto> searchPeople(String q, int limit) {
+        return searchPeople(q, limit, true);
+    }
+
+    public List<DTOs.PersonSummaryDto> searchPeople(String q, int limit, boolean excludeArchived) {
         String like = "%" + q.trim() + "%";
+
+        Condition cond = PEOPLE.FIRST_NAME.likeIgnoreCase(like)
+                .or(PEOPLE.LAST_NAME.likeIgnoreCase(like))
+                .or(DSL.concat(PEOPLE.FIRST_NAME, DSL.inline(" "), PEOPLE.LAST_NAME).likeIgnoreCase(like));
+        if (excludeArchived) {
+            cond = cond.and(IS_ARCHIVED.isNull().or(IS_ARCHIVED.eq(false)));
+        }
+
         return dsl.select(PEOPLE.ID, PEOPLE.FIRST_NAME, PEOPLE.LAST_NAME,
                         P_PREFIX, P_MIDDLE_NAME, P_SUFFIX,
-                        PEOPLE.DATE_OF_BIRTH, DATE_OF_DEATH, IS_DECEASED)
+                        PEOPLE.DATE_OF_BIRTH, DATE_OF_DEATH, IS_DECEASED,
+                        P_PROFILE_PICTURE_URL,
+                        USERS.USERNAME)
                 .from(PEOPLE)
-                .where(PEOPLE.FIRST_NAME.likeIgnoreCase(like)
-                        .or(PEOPLE.LAST_NAME.likeIgnoreCase(like))
-                        .or(DSL.concat(PEOPLE.FIRST_NAME, DSL.inline(" "), PEOPLE.LAST_NAME).likeIgnoreCase(like)))
+                .leftJoin(USERS).on(USERS.PERSON_ID.eq(PEOPLE.ID))
+                .where(cond)
                 .orderBy(PEOPLE.LAST_NAME.asc(), PEOPLE.FIRST_NAME.asc(), PEOPLE.DATE_OF_BIRTH.asc().nullsLast())
                 .limit(limit)
                 .fetch(r -> {
@@ -83,6 +98,8 @@ public class PeopleService {
                             .dateOfBirth(Optional.ofNullable(dob).map(LocalDate::toString).orElse(null))
                             .dateOfDeath(dod != null ? dod.toString() : null)
                             .deceased(dod != null)
+                            .profilePictureUrl(r.get(P_PROFILE_PICTURE_URL))
+                            .username(r.get(USERS.USERNAME))
                             .build();
                 });
     }
@@ -507,6 +524,8 @@ public class PeopleService {
         ).and(
                 DATE_OF_DEATH.isNull()
         );
+        // Exclude archived profiles
+        cond = cond.and(IS_ARCHIVED.isNull().or(IS_ARCHIVED.eq(false)));
 
         return dsl.select(PEOPLE.ID, PEOPLE.FIRST_NAME, PEOPLE.LAST_NAME,
                         P_PREFIX, P_MIDDLE_NAME, P_SUFFIX,
@@ -527,6 +546,55 @@ public class PeopleService {
                             .dateOfBirth(Optional.ofNullable(dob).map(LocalDate::toString).orElse(null))
                             .dateOfDeath(dod != null ? dod.toString() : null)
                             .deceased(isDeceased)
+                            .build();
+                });
+    }
+
+    /**
+     * Search for ARCHIVED, living PEOPLE records matching first+last name + DOB.
+     * These are profiles from genealogy imports that may belong to living elders.
+     * Requires name + DOB match to surface, and claims always require admin approval.
+     */
+    public List<DTOs.PersonSummaryDto> searchUnclaimedArchived(String firstName, String lastName, LocalDate dateOfBirth) {
+        if (firstName == null || firstName.isBlank()) return List.of();
+        if (dateOfBirth == null) return List.of(); // DOB required to match archived profiles
+
+        Condition cond = PEOPLE.FIRST_NAME.likeIgnoreCase("%" + firstName.trim() + "%");
+        if (lastName != null && !lastName.isBlank()) {
+            cond = cond.and(PEOPLE.LAST_NAME.likeIgnoreCase("%" + lastName.trim() + "%"));
+        }
+        // Must match DOB exactly
+        cond = cond.and(PEOPLE.DATE_OF_BIRTH.eq(dateOfBirth));
+        // Must be archived
+        cond = cond.and(IS_ARCHIVED.eq(true));
+        // Must be living (not deceased)
+        cond = cond.and(IS_DECEASED.isNull().or(IS_DECEASED.eq(false)))
+                   .and(DATE_OF_DEATH.isNull());
+        // Must not already be linked to a user
+        cond = cond.andNotExists(
+                DSL.selectOne().from(USERS).where(USERS.PERSON_ID.eq(PEOPLE.ID))
+        );
+
+        return dsl.select(PEOPLE.ID, PEOPLE.FIRST_NAME, PEOPLE.LAST_NAME,
+                        P_PREFIX, P_MIDDLE_NAME, P_SUFFIX,
+                        PEOPLE.DATE_OF_BIRTH, DATE_OF_DEATH, IS_DECEASED)
+                .from(PEOPLE)
+                .where(cond)
+                .orderBy(PEOPLE.LAST_NAME.asc(), PEOPLE.FIRST_NAME.asc())
+                .limit(5)
+                .fetch(r -> {
+                    LocalDate dob = r.get(PEOPLE.DATE_OF_BIRTH);
+                    LocalDate dod = r.get(DATE_OF_DEATH);
+                    boolean isDeceased = Boolean.TRUE.equals(r.get(IS_DECEASED)) || dod != null;
+                    return DTOs.PersonSummaryDto.builder()
+                            .personId(r.get(PEOPLE.ID))
+                            .displayName(fullDisplayName(
+                                    r.get(P_PREFIX), r.get(PEOPLE.FIRST_NAME), r.get(P_MIDDLE_NAME),
+                                    r.get(PEOPLE.LAST_NAME), r.get(P_SUFFIX), dob, dod))
+                            .dateOfBirth(Optional.ofNullable(dob).map(LocalDate::toString).orElse(null))
+                            .dateOfDeath(dod != null ? dod.toString() : null)
+                            .deceased(isDeceased)
+                            .archived(true)
                             .build();
                 });
     }

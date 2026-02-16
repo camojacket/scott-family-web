@@ -5,8 +5,9 @@ import { useParams } from 'next/navigation';
 import { apiFetch, uploadAnonymous } from '../../lib/api';
 import PersonAutocomplete from '../../components/PersonAutocomplete';
 import ArticleIcon from '@mui/icons-material/Article';
+import CdnAvatar from '../../components/CdnAvatar';
+import Image from '../../components/CdnImage';
 import {
-  Avatar,
   Box,
   Button,
   CircularProgress,
@@ -31,6 +32,8 @@ type Rel = { personId: number; displayName: string; relation: string };
 type Profile = {
   personId: number;
   displayName: string;
+  firstName?: string;
+  lastName?: string;
   bio?: string;
   dateOfBirth?: string | null;
   dateOfDeath?: string | null;
@@ -97,9 +100,16 @@ export default function ProfilePage() {
     try {
       const p = await apiFetch<Profile>(`/api/profile/${personId}`, { method: 'GET' });
       setProfile(p);
-      const parts = (p.displayName || '').split(' ');
-      setEditFirstName(parts[0] || '');
-      setEditLastName(parts.slice(1).join(' ') || '');
+      // Use individual name fields from backend if available; fall back to displayName (stripping year range)
+      if (p.firstName || p.lastName) {
+        setEditFirstName(p.firstName || '');
+        setEditLastName(p.lastName || '');
+      } else {
+        const cleaned = (p.displayName || '').replace(/\s*\(.*\)\s*$/, '');
+        const parts = cleaned.split(' ');
+        setEditFirstName(parts[0] || '');
+        setEditLastName(parts.slice(1).join(' ') || '');
+      }
       setEditDob(p.dateOfBirth || '');
       setEditDod(p.dateOfDeath || '');
       setEditMotherId(p.motherId ?? null);
@@ -213,16 +223,25 @@ export default function ProfilePage() {
     <Box sx={{ maxWidth: 860, mx: 'auto', py: { xs: 3, sm: 5 } }}>
       {/* Banner + avatar hero */}
       <Box className="card" sx={{ overflow: 'hidden', mb: 3, position: 'relative' }}>
-        <Box
-          sx={{
-            height: { xs: 140, sm: 200 },
-            background: p.bannerImageUrl
-              ? `url(${p.bannerImageUrl}) center/cover no-repeat`
-              : 'linear-gradient(135deg, #0d47a1 0%, #1976d2 50%, #42a5f5 100%)',
-          }}
-        />
+        {p.bannerImageUrl ? (
+          <Box sx={{ position: 'relative', height: { xs: 140, sm: 200 } }}>
+            <Image
+              src={p.bannerImageUrl}
+              alt="Profile banner"
+              fill
+              style={{ objectFit: 'cover' }}
+            />
+          </Box>
+        ) : (
+          <Box
+            sx={{
+              height: { xs: 140, sm: 200 },
+              background: 'linear-gradient(135deg, #0d47a1 0%, #1976d2 50%, #42a5f5 100%)',
+            }}
+          />
+        )}
         <Box sx={{ display: 'flex', justifyContent: 'center', mt: -6 }}>
-          <Avatar
+          <CdnAvatar
             src={p.profilePictureUrl || undefined}
             sx={{
               width: 96,
@@ -235,7 +254,7 @@ export default function ProfilePage() {
             }}
           >
             {p.displayName?.charAt(0)?.toUpperCase()}
-          </Avatar>
+          </CdnAvatar>
         </Box>
 
         <Box sx={{ px: 3, pb: 3, pt: 1.5, textAlign: 'center' }}>

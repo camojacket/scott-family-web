@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useRef, useCallback } from 'react';
+import Image from './CdnImage';
 import {
   Box,
   Typography,
@@ -263,16 +264,13 @@ export default function HeroSlideshow({ isAdmin, editMode, family }: HeroSlidesh
                 }}
               />
             ) : (
-              <Box
-                component="img"
+              <Image
                 src={slide.url}
                 alt={slide.caption || `Slide ${i + 1}`}
-                sx={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'cover',
-                  display: 'block',
-                }}
+                fill
+                sizes="100vw"
+                style={{ objectFit: 'cover' }}
+                priority={i === 0}
               />
             )}
           </Box>

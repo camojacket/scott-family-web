@@ -88,10 +88,10 @@ public class GalleryService {
     }
 
     /**
-     * List all gallery images, ordered by imageDate desc (nulls last), then uploadedAt desc.
-     * Includes tags for each image.
+     * List gallery images, ordered by imageDate desc (nulls last), then uploadedAt desc.
+     * Includes tags for each image. Supports pagination via offset/limit.
      */
-    public List<GalleryImageDto> listAll() {
+    public List<GalleryImageDto> listAll(int offset, int limit) {
         Map<Long, List<ImageTagDto>> allTags = getAllTags();
 
         return dsl.selectFrom(GALLERY_IMAGES)
@@ -99,6 +99,8 @@ public class GalleryService {
                         DSL.field("IMAGE_DATE").desc().nullsLast(),
                         DSL.field("UPLOADED_AT").desc()
                 )
+                .offset(offset)
+                .limit(limit)
                 .fetch()
                 .map(r -> {
                     Long id = r.get(F_ID);
@@ -116,6 +118,11 @@ public class GalleryService {
                         .tags(allTags.getOrDefault(id, new ArrayList<>()))
                         .build();
                 });
+    }
+
+    /** Backwards-compatible overload — returns all images. */
+    public List<GalleryImageDto> listAll() {
+        return listAll(0, 200);
     }
 
     /**

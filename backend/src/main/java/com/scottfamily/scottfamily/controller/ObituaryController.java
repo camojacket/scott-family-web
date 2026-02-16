@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import jakarta.validation.Valid;
 
 import com.scottfamily.scottfamily.service.CdnUploadService;
 import com.scottfamily.scottfamily.service.CdnUploadService.AssetKind;
@@ -38,8 +39,10 @@ public class ObituaryController {
 
     /** Authenticated — list all obituaries with tagged people */
     @GetMapping
-    public List<ObituaryDto> getAll() {
-        return obituaryService.getAll();
+    public List<ObituaryDto> getAll(
+            @RequestParam(defaultValue = "0") int offset,
+            @RequestParam(defaultValue = "100") int limit) {
+        return obituaryService.getAll(offset, Math.min(limit, 100));
     }
 
     /** Authenticated — get obituaries tagged to a specific person */
@@ -75,7 +78,7 @@ public class ObituaryController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ObituaryDto> update(
             @PathVariable Long id,
-            @RequestBody UpdateObituaryRequest req
+            @Valid @RequestBody UpdateObituaryRequest req
     ) {
         ObituaryDto dto = obituaryService.update(id, req);
         if (dto == null) return ResponseEntity.notFound().build();

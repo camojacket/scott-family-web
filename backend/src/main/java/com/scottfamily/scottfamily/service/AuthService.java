@@ -34,6 +34,7 @@ public class AuthService {
     private final DSLContext dsl;
     private final PasswordEncoder passwordEncoder;
     private final UserDetailsService userDetailsService;
+    private final SiteSettingsService siteSettings;
 
     // Inline field refs for PEOPLE columns (pending jOOQ regen after V12)
     private static final Field<String> P_MIDDLE_NAME        = DSL.field(DSL.name("middle_name"),        String.class);
@@ -48,6 +49,8 @@ public class AuthService {
     // Ban support columns (inline until jOOQ regen)
     private static final Field<java.time.OffsetDateTime> U_BANNED_UNTIL = DSL.field(DSL.name("banned_until"), java.time.OffsetDateTime.class);
     private static final Field<String>                   U_BAN_REASON   = DSL.field(DSL.name("ban_reason"),   String.class);
+    private static final Field<Long>                     U_ARCHIVED_CLAIM_PERSON_ID = DSL.field(DSL.name("archived_claim_person_id"), Long.class);
+    private static final Field<Boolean>                  IS_ARCHIVED    = DSL.field(DSL.name("is_archived"), Boolean.class);
 
     public DTOs.ProfileDto authenticate(DTOs.LoginRequest req) {
         UsersRecord user = dsl.selectFrom(USERS)
@@ -197,7 +200,27 @@ public class AuthService {
             u.setRequestedAt(LocalDateTime.now());
             u.setUserRole("ROLE_USER");
             u.setPersonId(personId);
+
+            // Detect if this signup involves an archived profile claim
+            boolean isArchivedClaim = req.claimPersonId() != null && d.fetchExists(
+                    selectOne().from(PEOPLE)
+                            .where(PEOPLE.ID.eq(req.claimPersonId()))
+                            .and(IS_ARCHIVED.eq(true)));
+
+            // Auto-approve if bypass is enabled — EXCEPT for archived claims which always need admin review
+            if (siteSettings.isEnabled(SiteSettingsService.BYPASS_SIGNUP_APPROVAL) && !isArchivedClaim) {
+                u.setApprovedAt(LocalDateTime.now());
+            }
+
             u.store();
+
+            // If this is an archived claim, record it on the user row for admin visibility
+            if (isArchivedClaim) {
+                d.update(USERS)
+                        .set(U_ARCHIVED_CLAIM_PERSON_ID, req.claimPersonId())
+                        .where(USERS.ID.eq(u.getId()))
+                        .execute();
+            }
 
             // 5) Return unified profile
             return toProfile(u);

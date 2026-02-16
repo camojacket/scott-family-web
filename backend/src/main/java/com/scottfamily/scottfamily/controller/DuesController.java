@@ -3,7 +3,7 @@ package com.scottfamily.scottfamily.controller;
 import com.scottfamily.scottfamily.service.DuesService;
 import com.scottfamily.scottfamily.service.DuesService.*;
 import com.scottfamily.scottfamily.service.DuePeriodService;
-import org.jooq.DSLContext;
+import com.scottfamily.scottfamily.service.UserHelper;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -13,8 +13,6 @@ import java.time.Year;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-
-import static com.yourproject.generated.scott_family_web.Tables.USERS;
 
 /**
  * REST API for reunion dues.
@@ -32,18 +30,18 @@ public class DuesController {
 
     private final DuesService duesService;
     private final DuePeriodService periodService;
-    private final DSLContext dsl;
+    private final UserHelper userHelper;
 
-    public DuesController(DuesService duesService, DuePeriodService periodService, DSLContext dsl) {
+    public DuesController(DuesService duesService, DuePeriodService periodService, UserHelper userHelper) {
         this.duesService = duesService;
         this.periodService = periodService;
-        this.dsl = dsl;
+        this.userHelper = userHelper;
     }
 
     /** Get the current user's dues page: self status + guest payments. */
     @GetMapping
     public ResponseEntity<?> getMyDues(Authentication auth) {
-        Long userId = resolveUserId(auth.getName());
+        Long userId = userHelper.resolveUserId(auth.getName());
         if (userId == null) return ResponseEntity.status(403).body(Map.of("error", "Could not resolve user"));
 
         int year = periodService.resolveReunionYear();
@@ -60,7 +58,7 @@ public class DuesController {
             @RequestBody PayRequest request,
             Authentication auth
     ) {
-        Long userId = resolveUserId(auth.getName());
+        Long userId = userHelper.resolveUserId(auth.getName());
         if (userId == null) return ResponseEntity.status(403).body(Map.of("error", "Could not resolve user"));
 
         int year = periodService.resolveReunionYear();
@@ -69,7 +67,8 @@ public class DuesController {
             var batch = duesService.createBatch(
                     userId, year,
                     request.payForSelf != null ? request.payForSelf : true,
-                    request.guests != null ? request.guests : List.of());
+                    request.guests != null ? request.guests : List.of(),
+                    request.onBehalf != null ? request.onBehalf : List.of());
             return ResponseEntity.ok(batch);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
@@ -82,7 +81,7 @@ public class DuesController {
             @RequestBody ConfirmRequest request,
             Authentication auth
     ) {
-        Long userId = resolveUserId(auth.getName());
+        Long userId = userHelper.resolveUserId(auth.getName());
         if (userId == null) return ResponseEntity.status(403).body(Map.of("error", "Could not resolve user"));
 
         if (request.batchId == null || request.batchId.isBlank()) {
@@ -163,21 +162,12 @@ public class DuesController {
         return ResponseEntity.ok(result);
     }
 
-    // ── Helpers ──
-
-    private Long resolveUserId(String username) {
-        var rec = dsl.select(USERS.ID)
-                .from(USERS)
-                .where(USERS.USERNAME.eq(username))
-                .fetchOne();
-        return rec != null ? rec.value1() : null;
-    }
-
     // ── Request DTOs ──
 
     public static class PayRequest {
         public Boolean payForSelf;
         public List<DuesService.GuestInfo> guests;
+        public List<DuesService.OnBehalfEntry> onBehalf;
     }
 
     public static class ConfirmRequest {

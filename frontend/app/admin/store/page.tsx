@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
+import Image from '../../components/CdnImage';
 import {
   Box,
   Typography,
@@ -305,8 +306,9 @@ export default function AdminStorePage() {
                 <Box key={p.id} className="card" sx={{ p: 2 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                     {p.imageUrl ? (
-                      <Box component="img" src={p.imageUrl} alt={p.name}
-                        sx={{ width: 64, height: 64, borderRadius: 'var(--radius-sm)', objectFit: 'cover' }} />
+                      <Box sx={{ position: 'relative', width: 64, height: 64, borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
+                        <Image src={p.imageUrl} alt={p.name} fill sizes="64px" style={{ objectFit: 'cover' }} />
+                      </Box>
                     ) : (
                       <Box sx={{ width: 64, height: 64, borderRadius: 'var(--radius-sm)', bgcolor: 'var(--color-primary-50)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -503,12 +505,13 @@ export default function AdminStorePage() {
                 }}
               />
               {prodImagePreview ? (
-                <Box sx={{ position: 'relative', display: 'inline-block' }}>
-                  <Box
-                    component="img"
+                <Box sx={{ position: 'relative', display: 'inline-block', width: 120, height: 120, borderRadius: 'var(--radius-sm)', overflow: 'hidden', border: '1px solid var(--border)' }}>
+                  <Image
                     src={prodImagePreview}
                     alt="Preview"
-                    sx={{ width: 120, height: 120, borderRadius: 'var(--radius-sm)', objectFit: 'cover', border: '1px solid var(--border)' }}
+                    fill
+                    sizes="120px"
+                    style={{ objectFit: 'cover' }}
                   />
                   <IconButton
                     size="small"

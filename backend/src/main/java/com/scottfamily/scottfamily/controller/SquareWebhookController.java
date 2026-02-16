@@ -164,7 +164,7 @@ public class SquareWebhookController {
             if (referenceId == null || referenceId.isBlank()) {
                 log.warn("Square webhook: payment {} has no reference_id or note, cannot reconcile. "
                         + "Ensure the Square payment is created with reference_id or paymentNote set to "
-                        + "'order:{{orderId}}', 'dues-batch:{{batchId}}', or 'dues:{{userId}}:{{year}}'",
+                        + "'order:{{orderId}}', 'db:{{batchId}}', or 'dues:{{userId}}:{{year}}'",
                         paymentId);
                 return;
             }
@@ -188,7 +188,12 @@ public class SquareWebhookController {
                 return;
             }
 
-            if (referenceId.startsWith("dues-batch:")) {
+            if (referenceId.startsWith("db:")) {
+                String batchId = referenceId.substring(3);
+                duesService.markBatchFailed(batchId);
+                log.info("Square webhook: marked dues batch {} as FAILED", batchId);
+            } else if (referenceId.startsWith("dues-batch:")) {
+                // Legacy format — kept for back-compat with in-flight payments
                 String batchId = referenceId.substring(11);
                 duesService.markBatchFailed(batchId);
                 log.info("Square webhook: marked dues batch {} as FAILED", batchId);
@@ -247,7 +252,17 @@ public class SquareWebhookController {
                     log.info("Square webhook: reconciled order {} as PAID", orderId);
                 }
 
+            } else if (referenceId.startsWith("db:")) {
+                String batchId = referenceId.substring(3);
+                try {
+                    duesService.confirmBatch(batchId, paymentId, receiptUrl);
+                    log.info("Square webhook: reconciled dues batch {}", batchId);
+                } catch (IllegalStateException e) {
+                    log.info("Square webhook: dues batch {} already handled: {}", batchId, e.getMessage());
+                }
+
             } else if (referenceId.startsWith("dues-batch:")) {
+                // Legacy format — kept for back-compat with in-flight payments
                 String batchId = referenceId.substring(11);
                 try {
                     duesService.confirmBatch(batchId, paymentId, receiptUrl);

@@ -76,6 +76,10 @@ public class BlogPostService {
     // ── List posts with like counts, comment counts ──
 
     public List<BlogPostDto> listAll(Long currentUserId, String sort) {
+        return listAll(currentUserId, sort, 0, 50);
+    }
+
+    public List<BlogPostDto> listAll(Long currentUserId, String sort, int offset, int limit) {
         // Sub-select: like count per post
         Field<Integer> likeCountField = DSL.field(
                 DSL.select(DSL.count())
@@ -129,6 +133,8 @@ public class BlogPostService {
                 .leftJoin(USERS).on(F_BP_AUTHOR_ID.eq(F_USER_ID))
                 .leftJoin(PEOPLE).on(F_USER_PERSON_ID.eq(F_PEOPLE_ID))
                 .orderBy(orderBy)
+                .offset(offset)
+                .limit(limit)
                 .fetch(r -> BlogPostDto.builder()
                         .id(r.get(F_BP_ID))
                         .authorId(r.get(F_BP_AUTHOR_ID))

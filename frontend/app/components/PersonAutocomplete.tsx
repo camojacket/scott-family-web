@@ -12,16 +12,27 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import CdnAvatar from './CdnAvatar';
 import AddIcon from '@mui/icons-material/PersonAddAlt';
 import CloseIcon from '@mui/icons-material/Close';
 import CheckIcon from '@mui/icons-material/Check';
 
-type PersonHit = { personId: number; displayName: string; dateOfBirth?: string | null; dateOfDeath?: string | null; deceased?: boolean };
+type PersonHit = {
+  personId: number;
+  displayName: string;
+  dateOfBirth?: string | null;
+  dateOfDeath?: string | null;
+  deceased?: boolean;
+  profilePictureUrl?: string | null;
+  username?: string | null;
+};
 
 export interface PersonAutocompleteProps {
   label: string;
   value?: number | null;
   onChange: (personId: number | null) => void;
+  /** Optional richer callback that also provides the display name. */
+  onChangeFull?: (person: { personId: number; displayName: string } | null) => void;
   /** Creates or requests a person. Return personId for immediate use, or null if submitted for approval. */
   onAddPerson?: (firstName: string, lastName: string, dob?: string, dod?: string) => Promise<number | null>;
   disabled?: boolean;
@@ -41,6 +52,7 @@ export default function PersonAutocomplete({
   label,
   value,
   onChange,
+  onChangeFull,
   onAddPerson,
   disabled,
   placeholder,
@@ -133,6 +145,7 @@ export default function PersonAutocomplete({
         getOptionLabel={(o) => o?.displayName ?? ''}
         onChange={(_, opt) => {
           onChange(opt ? opt.personId : null);
+          onChangeFull?.(opt ? { personId: opt.personId, displayName: opt.displayName } : null);
           setPendingMsg(null);
           resetAdder();
         }}
@@ -154,15 +167,46 @@ export default function PersonAutocomplete({
             }}
           />
         )}
-        renderOption={(props, option) => (
-          <li {...props} key={option.personId}>
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ width: '100%' }}>
-              <Typography sx={{ flex: 1 }}>
-                {option.displayName}
-              </Typography>
-            </Stack>
-          </li>
-        )}
+        renderOption={(props, option) => {
+          // Build date range string: "1945–2020", "b. 1990", etc.
+          let dateInfo = '';
+          const birthYear = option.dateOfBirth?.slice(0, 4);
+          const deathYear = option.dateOfDeath?.slice(0, 4);
+          if (birthYear && deathYear) dateInfo = `${birthYear}–${deathYear}`;
+          else if (birthYear) dateInfo = `b. ${birthYear}`;
+          else if (deathYear) dateInfo = `d. ${deathYear}`;
+
+          return (
+            <li {...props} key={option.personId}>
+              <Stack direction="row" spacing={1.5} alignItems="center" sx={{ width: '100%', py: 0.5 }}>
+                <CdnAvatar
+                  src={option.profilePictureUrl ?? undefined}
+                  alt={option.displayName}
+                  sx={{ width: 36, height: 36, fontSize: 14 }}
+                >
+                  {option.displayName?.charAt(0) ?? '?'}
+                </CdnAvatar>
+                <Box sx={{ minWidth: 0, flex: 1 }}>
+                  <Typography sx={{ fontWeight: 600, lineHeight: 1.3 }} noWrap>
+                    {option.displayName}
+                  </Typography>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    {dateInfo && (
+                      <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                        {dateInfo}
+                      </Typography>
+                    )}
+                    {option.username && (
+                      <Typography variant="caption" sx={{ color: 'text.disabled' }}>
+                        @{option.username}
+                      </Typography>
+                    )}
+                  </Stack>
+                </Box>
+              </Stack>
+            </li>
+          );
+        }}
         noOptionsText={
           onAddPerson ? (
             <Box

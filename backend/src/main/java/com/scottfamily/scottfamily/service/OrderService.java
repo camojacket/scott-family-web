@@ -11,7 +11,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static com.yourproject.generated.scott_family_web.Tables.USERS;
 import static com.yourproject.generated.scott_family_web.Tables.PEOPLE;
@@ -57,10 +59,12 @@ public class OrderService {
 
     private final DSLContext dsl;
     private final StoreService storeService;
+    private final UserHelper userHelper;
 
-    public OrderService(DSLContext dsl, StoreService storeService) {
+    public OrderService(DSLContext dsl, StoreService storeService, UserHelper userHelper) {
         this.dsl = dsl;
         this.storeService = storeService;
+        this.userHelper = userHelper;
     }
 
     // ── DTOs ──
@@ -103,12 +107,12 @@ public class OrderService {
     // ── Read ──
 
     public List<OrderDto> getOrdersByUser(Long userId) {
-        return dsl.select(O_ID, O_USER_ID, O_STATUS, O_TOTAL, O_SQ_PAY_ID, O_SQ_RECEIPT, O_NOTES, O_CREATED, O_UPDATED)
+        var orders = dsl.select(O_ID, O_USER_ID, O_STATUS, O_TOTAL, O_SQ_PAY_ID, O_SQ_RECEIPT, O_NOTES, O_CREATED, O_UPDATED)
                 .from(ORDERS)
                 .where(O_USER_ID.eq(userId))
                 .orderBy(O_CREATED.desc())
-                .fetch()
-                .map(this::mapOrder);
+                .fetch();
+        return mapOrdersBatch(orders);
     }
 
     public OrderDto getOrder(Long orderId) {
@@ -120,21 +124,35 @@ public class OrderService {
         return mapOrder(rec);
     }
 
-    public List<OrderDto> listAllOrders() {
-        return dsl.select(O_ID, O_USER_ID, O_STATUS, O_TOTAL, O_SQ_PAY_ID, O_SQ_RECEIPT, O_NOTES, O_CREATED, O_UPDATED)
+    public List<OrderDto> listAllOrders(int offset, int limit) {
+        var orders = dsl.select(O_ID, O_USER_ID, O_STATUS, O_TOTAL, O_SQ_PAY_ID, O_SQ_RECEIPT, O_NOTES, O_CREATED, O_UPDATED)
                 .from(ORDERS)
                 .orderBy(O_CREATED.desc())
-                .fetch()
-                .map(this::mapOrder);
+                .offset(offset)
+                .limit(limit)
+                .fetch();
+        return mapOrdersBatch(orders);
     }
 
-    public List<OrderDto> listOrdersByStatus(String status) {
-        return dsl.select(O_ID, O_USER_ID, O_STATUS, O_TOTAL, O_SQ_PAY_ID, O_SQ_RECEIPT, O_NOTES, O_CREATED, O_UPDATED)
+    /** Backward-compatible overload */
+    public List<OrderDto> listAllOrders() {
+        return listAllOrders(0, 200);
+    }
+
+    public List<OrderDto> listOrdersByStatus(String status, int offset, int limit) {
+        var orders = dsl.select(O_ID, O_USER_ID, O_STATUS, O_TOTAL, O_SQ_PAY_ID, O_SQ_RECEIPT, O_NOTES, O_CREATED, O_UPDATED)
                 .from(ORDERS)
                 .where(O_STATUS.eq(status))
                 .orderBy(O_CREATED.desc())
-                .fetch()
-                .map(this::mapOrder);
+                .offset(offset)
+                .limit(limit)
+                .fetch();
+        return mapOrdersBatch(orders);
+    }
+
+    /** Backward-compatible overload */
+    public List<OrderDto> listOrdersByStatus(String status) {
+        return listOrdersByStatus(status, 0, 200);
     }
 
     // ── Write ──
@@ -381,6 +399,59 @@ public class OrderService {
 
     // ── Helpers ──
 
+    /**
+     * Batch-map multiple order records: fetches all items in one query
+     * and resolves display names to avoid N+1 per-order sub-queries.
+     */
+    private List<OrderDto> mapOrdersBatch(org.jooq.Result<? extends Record> orders) {
+        if (orders.isEmpty()) return List.of();
+
+        List<Long> orderIds = orders.map(r -> r.get(O_ID));
+
+        // Single query for all items across all orders
+        Map<Long, List<OrderItemDto>> itemsByOrder = dsl
+                .select(I_ID, I_ORDER_ID, I_VARIANT_ID, I_QTY, I_UNIT_PRICE, I_PROD_NAME, I_SIZE, I_COLOR)
+                .from(ITEMS)
+                .where(I_ORDER_ID.in(orderIds))
+                .fetch()
+                .stream()
+                .map(i -> Map.entry(
+                        i.get(I_ORDER_ID),
+                        new OrderItemDto(
+                                i.get(I_ID),
+                                i.get(I_VARIANT_ID),
+                                i.get(I_QTY) != null ? i.get(I_QTY) : 1,
+                                i.get(I_UNIT_PRICE) != null ? i.get(I_UNIT_PRICE) : 0,
+                                i.get(I_PROD_NAME),
+                                i.get(I_SIZE),
+                                i.get(I_COLOR)
+                        )
+                ))
+                .collect(Collectors.groupingBy(
+                        Map.Entry::getKey,
+                        Collectors.mapping(Map.Entry::getValue, Collectors.toList())
+                ));
+
+        return orders.map(rec -> {
+            Long oid = rec.get(O_ID);
+            Long uid = rec.get(O_USER_ID);
+            return new OrderDto(
+                    oid,
+                    uid,
+                    userHelper.resolveDisplayName(uid),
+                    rec.get(O_STATUS),
+                    rec.get(O_TOTAL) != null ? rec.get(O_TOTAL) : 0,
+                    rec.get(O_SQ_PAY_ID),
+                    rec.get(O_SQ_RECEIPT),
+                    rec.get(O_NOTES),
+                    rec.get(O_CREATED) != null ? rec.get(O_CREATED).toString() : null,
+                    rec.get(O_UPDATED) != null ? rec.get(O_UPDATED).toString() : null,
+                    itemsByOrder.getOrDefault(oid, List.of())
+            );
+        });
+    }
+
+    /** Map a single order record (used for getOrder). */
     private OrderDto mapOrder(Record rec) {
         Long oid = rec.get(O_ID);
         Long uid = rec.get(O_USER_ID);
@@ -402,7 +473,7 @@ public class OrderService {
         return new OrderDto(
                 oid,
                 uid,
-                resolveDisplayName(uid),
+                userHelper.resolveDisplayName(uid),
                 rec.get(O_STATUS),
                 rec.get(O_TOTAL) != null ? rec.get(O_TOTAL) : 0,
                 rec.get(O_SQ_PAY_ID),
@@ -412,25 +483,5 @@ public class OrderService {
                 rec.get(O_UPDATED) != null ? rec.get(O_UPDATED).toString() : null,
                 items
         );
-    }
-
-    private String resolveDisplayName(Long userId) {
-        var rec = dsl.select(PEOPLE.FIRST_NAME, PEOPLE.LAST_NAME)
-                .from(USERS)
-                .leftJoin(PEOPLE).on(USERS.PERSON_ID.eq(PEOPLE.ID))
-                .where(USERS.ID.eq(userId))
-                .fetchOne();
-
-        if (rec != null && rec.get(PEOPLE.FIRST_NAME) != null) {
-            String first = rec.get(PEOPLE.FIRST_NAME);
-            String last = rec.get(PEOPLE.LAST_NAME);
-            return (first + " " + (last != null ? last : "")).trim();
-        }
-
-        var usernameRec = dsl.select(USERS.USERNAME)
-                .from(USERS)
-                .where(USERS.ID.eq(userId))
-                .fetchOne();
-        return usernameRec != null ? usernameRec.get(USERS.USERNAME) : "Unknown";
     }
 }

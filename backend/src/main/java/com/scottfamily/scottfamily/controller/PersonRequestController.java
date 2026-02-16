@@ -10,6 +10,8 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
+import com.scottfamily.scottfamily.service.SiteSettingsService;
+
 import static com.yourproject.generated.scott_family_web.tables.Users.USERS;
 import static com.yourproject.generated.scott_family_web.tables.PersonRequests.PERSON_REQUESTS;
 
@@ -20,6 +22,8 @@ public class PersonRequestController {
 
     private static final int MAX_PENDING_PER_USER = 10;
     private final DSLContext dsl;
+    private final SiteSettingsService siteSettings;
+    private final AdminPeopleRequestsController adminPeopleRequestsController;
 
     /** Resolve username from SecurityContext (works regardless of principal type). */
     private String currentUsername() {
@@ -79,7 +83,7 @@ public class PersonRequestController {
         var F_PARENT_PERSON_ID = org.jooq.impl.DSL.field(org.jooq.impl.DSL.name("parent_person_id"), Long.class);
         var F_RELATION = org.jooq.impl.DSL.field(org.jooq.impl.DSL.name("relation"), String.class);
 
-        dsl.insertInto(PERSON_REQUESTS)
+        Long requestId = dsl.insertInto(PERSON_REQUESTS)
                 .set(PERSON_REQUESTS.USER_ID, me.getId())
                 .set(PERSON_REQUESTS.ACTION, action)
                 .set(PERSON_REQUESTS.TARGET_PERSON_ID, body.targetPersonId)
@@ -92,7 +96,14 @@ public class PersonRequestController {
                 .set(PERSON_REQUESTS.NOTES, body.notes)
                 .set(F_PARENT_PERSON_ID, body.parentPersonId)
                 .set(F_RELATION, body.relation)
-                .execute();
+                .returning(PERSON_REQUESTS.ID)
+                .fetchOne(PERSON_REQUESTS.ID);
+
+        // Auto-approve if bypass is enabled
+        if (requestId != null && siteSettings.isEnabled(SiteSettingsService.BYPASS_PEOPLE_REQUEST_APPROVAL)) {
+            adminPeopleRequestsController.approve(requestId, null);
+            return ResponseEntity.ok(Map.of("message", "Request auto-approved"));
+        }
 
         return ResponseEntity.ok(Map.of("message", "Request submitted for admin review"));
     }

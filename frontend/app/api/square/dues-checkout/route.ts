@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Client, Environment } from 'square';
+import { cookies } from 'next/headers';
 
 /**
  * POST /api/square/dues-checkout
@@ -22,6 +23,28 @@ const squareClient = new Client({
 
 export async function POST(req: NextRequest) {
   try {
+    // ── Auth check: verify caller has a valid session ──
+    const cookieStore = await cookies();
+    const sessionCookie = cookieStore.get('JSESSIONID');
+    if (!sessionCookie) {
+      return NextResponse.json(
+        { error: 'Authentication required' },
+        { status: 401 },
+      );
+    }
+
+    // Verify the session is actually valid by probing the backend
+    const backendBase =
+      process.env.NEXT_PUBLIC_API_BASE?.replace(/\/+$/, '') || '';
+    const sessionCheck = await fetch(`${backendBase}/api/auth/session-info`, {
+      headers: { Cookie: `JSESSIONID=${sessionCookie.value}` },
+    });
+    if (!sessionCheck.ok) {
+      return NextResponse.json(
+        { error: 'Session expired or invalid' },
+        { status: 401 },
+      );
+    }
     const { batchId, personCount, reunionYear } = await req.json();
 
     if (!batchId || !personCount) {
@@ -39,7 +62,7 @@ export async function POST(req: NextRequest) {
     }
 
     const year = reunionYear || new Date().getFullYear();
-    const referenceId = `dues-batch:${batchId}`;
+    const referenceId = `db:${batchId}`;
 
     // Derive redirect URL from the incoming request origin
     const origin =

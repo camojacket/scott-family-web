@@ -28,6 +28,16 @@ function normalizePath(path: string): string {
   return path.startsWith('/') ? path : `/${path}`;
 }
 
+/**
+ * Read the XSRF-TOKEN cookie set by Spring Security's CookieCsrfTokenRepository.
+ * Returns the token value or null if not present (e.g., SSR or first request).
+ */
+function getCsrfToken(): string | null {
+  if (typeof document === 'undefined') return null;
+  const match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]*)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 export async function apiFetch<T = unknown>(
   path: string,
   init: JsonInit = {}
@@ -35,6 +45,15 @@ export async function apiFetch<T = unknown>(
   const headers = new Headers(init.headers || {});
   if (!headers.has('Content-Type') && init.body !== undefined && !(init.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json');
+  }
+
+  // Attach CSRF token for state-changing requests (POST/PUT/PATCH/DELETE)
+  const method = (init.method || 'GET').toUpperCase();
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+    const csrfToken = getCsrfToken();
+    if (csrfToken) {
+      headers.set('X-XSRF-TOKEN', csrfToken);
+    }
   }
 
   const url = `${API_BASE}${normalizePath(path)}`;

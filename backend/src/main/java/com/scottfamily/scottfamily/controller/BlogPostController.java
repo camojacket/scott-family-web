@@ -3,16 +3,15 @@ package com.scottfamily.scottfamily.controller;
 import com.scottfamily.scottfamily.service.BlogPostService;
 import com.scottfamily.scottfamily.service.BlogPostService.BlogPostDto;
 import com.scottfamily.scottfamily.service.BlogPostService.ReactionResult;
-import org.jooq.DSLContext;
+import com.scottfamily.scottfamily.service.UserHelper;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.*;
 
+import jakarta.validation.Valid;
 import java.util.List;
 import java.util.Map;
-
-import static com.yourproject.generated.scott_family_web.Tables.USERS;
 
 /**
  * REST API for blog posts.
@@ -27,32 +26,34 @@ import static com.yourproject.generated.scott_family_web.Tables.USERS;
 public class BlogPostController {
 
     private final BlogPostService blogPostService;
-    private final DSLContext dsl;
+    private final UserHelper userHelper;
 
-    public BlogPostController(BlogPostService blogPostService, DSLContext dsl) {
+    public BlogPostController(BlogPostService blogPostService, UserHelper userHelper) {
         this.blogPostService = blogPostService;
-        this.dsl = dsl;
+        this.userHelper = userHelper;
     }
 
     @GetMapping
     public List<BlogPostDto> listPosts(
             @RequestParam(defaultValue = "newest") String sort,
+            @RequestParam(defaultValue = "0") int offset,
+            @RequestParam(defaultValue = "50") int limit,
             Authentication auth
     ) {
-        Long userId = resolveUserId(auth.getName());
-        return blogPostService.listAll(userId, sort);
+        Long userId = userHelper.resolveUserId(auth.getName());
+        return blogPostService.listAll(userId, sort, offset, Math.min(limit, 100));
     }
 
     @PostMapping
     public ResponseEntity<?> createPost(
-            @RequestBody CreatePostRequest request,
+            @Valid @RequestBody CreatePostRequest request,
             Authentication auth
     ) {
         if (request.title == null || request.title.isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("error", "Title is required"));
         }
 
-        Long authorId = resolveUserId(auth.getName());
+        Long authorId = userHelper.resolveUserId(auth.getName());
         if (authorId == null) {
             return ResponseEntity.status(403).body(Map.of("error", "Could not resolve user"));
         }
@@ -70,7 +71,7 @@ public class BlogPostController {
             @PathVariable Long id,
             Authentication auth
     ) {
-        Long userId = resolveUserId(auth.getName());
+        Long userId = userHelper.resolveUserId(auth.getName());
         if (userId == null) {
             return ResponseEntity.status(403).body(Map.of("error", "Could not resolve user"));
         }
@@ -91,7 +92,7 @@ public class BlogPostController {
             @PathVariable Long id,
             Authentication auth
     ) {
-        Long userId = resolveUserId(auth.getName());
+        Long userId = userHelper.resolveUserId(auth.getName());
         if (userId == null) {
             return ResponseEntity.status(403).body(Map.of("error", "Could not resolve user"));
         }
@@ -107,7 +108,7 @@ public class BlogPostController {
             @PathVariable Long id,
             Authentication auth
     ) {
-        Long userId = resolveUserId(auth.getName());
+        Long userId = userHelper.resolveUserId(auth.getName());
         if (userId == null) {
             return ResponseEntity.status(403).body(Map.of("error", "Could not resolve user"));
         }
@@ -116,16 +117,6 @@ public class BlogPostController {
         return ResponseEntity.ok(Map.of(
                 "liked", result.liked(), "disliked", result.disliked(),
                 "likeCount", result.likeCount(), "dislikeCount", result.dislikeCount()));
-    }
-
-    // ── Helpers ──
-
-    private Long resolveUserId(String username) {
-        var rec = dsl.select(USERS.ID)
-                .from(USERS)
-                .where(USERS.USERNAME.eq(username))
-                .fetchOne();
-        return rec != null ? rec.value1() : null;
     }
 
     // ── Request body ──

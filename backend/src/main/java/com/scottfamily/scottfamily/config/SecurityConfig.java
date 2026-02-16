@@ -25,6 +25,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -51,8 +53,18 @@ public class SecurityConfig {
                 // CORS must be before CSRF/authZ so preflights succeed
                 .cors(Customizer.withDefaults())
 
-                // For cookie/session auth on a pure API, disable CSRF (or switch to CSRF tokens if you prefer)
-                .csrf(csrf -> csrf.disable())
+                // CSRF via double-submit cookie: Spring sets XSRF-TOKEN cookie,
+                // frontend reads it and sends it back as X-XSRF-TOKEN header.
+                .csrf(csrf -> {
+                    var delegate = new CsrfTokenRequestAttributeHandler();
+                    delegate.setCsrfRequestAttributeName(null); // force eager resolution
+                    csrf
+                        .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                        .csrfTokenRequestHandler(delegate)
+                        // Exempt webhook endpoints (authenticated via HMAC, not session)
+                        // and auth endpoints (public, no session yet so no CSRF cookie)
+                        .ignoringRequestMatchers("/api/webhooks/**", "/api/auth/**");
+                })
 
                 // Your auth rules — keep these aligned with “site behind login except auth/public”
                 .authorizeHttpRequests(auth -> auth
@@ -63,6 +75,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/announcements/active").permitAll() // public announcements
                         .requestMatchers(HttpMethod.GET, "/api/people/search").permitAll()        // needed during signup for profile claim
                         .requestMatchers(HttpMethod.GET, "/api/people/unclaimed").permitAll()     // needed during signup for profile claim
+                        .requestMatchers(HttpMethod.GET, "/api/people/unclaimed-archived").permitAll() // needed during signup for archived profile claim
                         .requestMatchers(HttpMethod.GET, "/api/profile/{personId}").permitAll()   // needed during signup auto-populate
                         .requestMatchers(HttpMethod.POST, "/api/webhooks/square").permitAll()     // Square webhook (signature-verified internally)
                         .requestMatchers(HttpMethod.GET, "/api/page-content/**").permitAll()      // public page content
@@ -138,7 +151,8 @@ public class SecurityConfig {
                 // Headers your frontend will send/read
                 cfg.setAllowedHeaders(List.of(
                         "Origin", "Content-Type", "Accept",
-                        "Authorization", "X-Requested-With"
+                        "Authorization", "X-Requested-With",
+                        "X-XSRF-TOKEN"
                 ));
 
                 // Expose any headers the frontend needs to read (e.g., Set-Cookie is handled by the browser,
