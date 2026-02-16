@@ -56,10 +56,8 @@ public class AzureStorageConfig {
             BlobCorsRule rule = new BlobCorsRule()
                     .setAllowedOrigins(allowedOrigin)
                     .setAllowedMethods("GET,PUT,DELETE,HEAD,OPTIONS")
-                    .setAllowedHeaders("Content-Type,x-ms-blob-type,x-ms-version,x-ms-blob-content-type,"
-                            + "x-ms-blob-cache-control,x-ms-client-request-id,x-ms-date,"
-                            + "x-ms-blob-content-disposition,Authorization,Range,If-Match,If-None-Match")
-                    .setExposedHeaders("ETag,Content-Length,x-ms-request-id,x-ms-version,x-ms-client-request-id,Content-MD5")
+                    .setAllowedHeaders("*")
+                    .setExposedHeaders("*")
                     .setMaxAgeInSeconds(3600);
 
             List<BlobCorsRule> updated = new ArrayList<>(existing);
