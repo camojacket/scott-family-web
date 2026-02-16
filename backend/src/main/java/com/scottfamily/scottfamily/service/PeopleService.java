@@ -179,17 +179,11 @@ public class PeopleService {
                 .where(USERS.PERSON_ID.eq(personId))
                 .fetchOne();
 
-        // Parents — collect from BOTH PEOPLE columns and PERSON_PARENT, then deduplicate by personId
+        // Parents — collect from PERSON_PARENT first (source of truth for relation type),
+        // then fall back to PEOPLE columns if no person_parent entry exists.
         Map<Long, DTOs.PersonRelDto> parentMap = new LinkedHashMap<>();
 
-        if (p.get(PEOPLE.MOTHER_ID) != null) {
-            parentMap.put(p.get(PEOPLE.MOTHER_ID), relDto(p.get(PEOPLE.MOTHER_ID), "BIOLOGICAL_MOTHER"));
-        }
-        if (p.get(PEOPLE.FATHER_ID) != null) {
-            parentMap.put(p.get(PEOPLE.FATHER_ID), relDto(p.get(PEOPLE.FATHER_ID), "BIOLOGICAL_FATHER"));
-        }
-
-        // Additional parents from PERSON_PARENT (step/adoptive/guardian + bio if not already added)
+        // PERSON_PARENT entries have the correct relation (step/adoptive/foster/bio)
         dsl.select(PERSON_PARENT.PARENT_PERSON_ID, PERSON_PARENT.RELATION, PEOPLE.FIRST_NAME, PEOPLE.LAST_NAME,
                         P_PREFIX, P_MIDDLE_NAME, P_SUFFIX, PEOPLE.DATE_OF_BIRTH, DATE_OF_DEATH)
                 .from(PERSON_PARENT.join(PEOPLE).on(PEOPLE.ID.eq(PERSON_PARENT.PARENT_PERSON_ID)))
@@ -203,7 +197,15 @@ public class PeopleService {
                                 r.get(PEOPLE.LAST_NAME), r.get(P_SUFFIX),
                                 r.get(PEOPLE.DATE_OF_BIRTH), r.get(DATE_OF_DEATH)))
                         .build())
-                .forEach(rel -> parentMap.putIfAbsent(rel.getPersonId(), rel)); // skip dupes
+                .forEach(rel -> parentMap.put(rel.getPersonId(), rel));
+
+        // Fallback: PEOPLE.MOTHER_ID/FATHER_ID (default to BIOLOGICAL if no person_parent entry)
+        if (p.get(PEOPLE.MOTHER_ID) != null) {
+            parentMap.putIfAbsent(p.get(PEOPLE.MOTHER_ID), relDto(p.get(PEOPLE.MOTHER_ID), "BIOLOGICAL_MOTHER"));
+        }
+        if (p.get(PEOPLE.FATHER_ID) != null) {
+            parentMap.putIfAbsent(p.get(PEOPLE.FATHER_ID), relDto(p.get(PEOPLE.FATHER_ID), "BIOLOGICAL_FATHER"));
+        }
 
         List<DTOs.PersonRelDto> parents = new ArrayList<>(parentMap.values());
 
@@ -248,12 +250,14 @@ public class PeopleService {
         }
 
         // Also check PERSON_SIBLING table (explicit entries with RELATION)
+        // These override column-derived relations since they're the source of truth
+        // (e.g. STEP_SIBLING or FOSTER_SIBLING instead of derived SIBLING/HALF_SIBLING)
         dsl.select(DSL.field(DSL.name("PERSON_B_ID"), Long.class),
                    DSL.field(DSL.name("RELATION"), String.class))
                 .from(DSL.table(DSL.name("PERSON_SIBLING")))
                 .where(DSL.field(DSL.name("PERSON_A_ID"), Long.class).eq(personId))
                 .fetch()
-                .forEach(r -> siblingRelMap.putIfAbsent(
+                .forEach(r -> siblingRelMap.put(
                         r.get(DSL.field(DSL.name("PERSON_B_ID"), Long.class)),
                         r.get(DSL.field(DSL.name("RELATION"), String.class))));
         dsl.select(DSL.field(DSL.name("PERSON_A_ID"), Long.class),
@@ -261,7 +265,7 @@ public class PeopleService {
                 .from(DSL.table(DSL.name("PERSON_SIBLING")))
                 .where(DSL.field(DSL.name("PERSON_B_ID"), Long.class).eq(personId))
                 .fetch()
-                .forEach(r -> siblingRelMap.putIfAbsent(
+                .forEach(r -> siblingRelMap.put(
                         r.get(DSL.field(DSL.name("PERSON_A_ID"), Long.class)),
                         r.get(DSL.field(DSL.name("RELATION"), String.class))));
 
