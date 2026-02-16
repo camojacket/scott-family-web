@@ -98,8 +98,10 @@
 
 
 -- SELECT * FROM dbo.users;
-SELECT * FROM dbo.people;
+-- SELECT * FROM dbo.people;
 -- SELECT * FROM PERSON_PARENT;
 -- SELECT * FROM PERSON_SIBLING;
 -- SELECT * FROM PERSON_SPOUSE;
-
+-- SELECT * FROM dbo.dues_payments;
+-- SELECT * FROM dbo.orders;
+-- SELECT * FROM dbo.order_items;

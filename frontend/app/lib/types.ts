@@ -300,6 +300,16 @@ export interface DuesSummaryDto {
   totalCollectedCents: number;
 }
 
+export interface PricingTierDto {
+  id?: number;
+  reunionYear?: number;
+  label: string;
+  minAge?: number;
+  maxAge?: number;
+  amountCents: number;
+  sortOrder: number;
+}
+
 export interface DuePeriodDto {
   id: number;
   reunionYear: number;
@@ -361,7 +371,7 @@ export interface OrderDto {
   id: number;
   userId: number;
   displayName: string;
-  status: 'PENDING' | 'PAID' | 'FULFILLED' | 'CANCELLED';
+  status: 'PENDING' | 'PAID' | 'FULFILLED' | 'CANCELLED' | 'REQUIRES_REFUND' | 'REFUNDED';
   totalCents: number;
   squarePaymentId?: string;
   squareReceiptUrl?: string;

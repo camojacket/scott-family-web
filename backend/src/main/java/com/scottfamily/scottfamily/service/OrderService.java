@@ -124,6 +124,15 @@ public class OrderService {
         return mapOrder(rec);
     }
 
+    public OrderDto findBySquarePaymentId(String squarePaymentId) {
+        var rec = dsl.select(O_ID, O_USER_ID, O_STATUS, O_TOTAL, O_SQ_PAY_ID, O_SQ_RECEIPT, O_NOTES, O_CREATED, O_UPDATED)
+                .from(ORDERS)
+                .where(O_SQ_PAY_ID.eq(squarePaymentId))
+                .fetchOne();
+        if (rec == null) return null;
+        return mapOrder(rec);
+    }
+
     public List<OrderDto> listAllOrders(int offset, int limit) {
         var orders = dsl.select(O_ID, O_USER_ID, O_STATUS, O_TOTAL, O_SQ_PAY_ID, O_SQ_RECEIPT, O_NOTES, O_CREATED, O_UPDATED)
                 .from(ORDERS)
@@ -394,6 +403,21 @@ public class OrderService {
                 .set(O_NOTES, "Expired — payment not completed within " + PENDING_EXPIRY_MINUTES + " minutes")
                 .where(O_STATUS.eq("PENDING")
                         .and(O_EXPIRES.lessThan(OffsetDateTime.now())))
+                .execute();
+    }
+
+    /**
+     * Force-set order status and notes, bypassing the state machine.
+     * Used by the admin refund flow to transition CANCELLED → REFUNDED
+     * after stock has already been restored by updateStatus.
+     */
+    @Transactional
+    public void forceStatus(Long orderId, String status, String notes) {
+        dsl.update(ORDERS)
+                .set(O_STATUS, status)
+                .set(O_NOTES, notes)
+                .set(O_UPDATED, OffsetDateTime.now())
+                .where(O_ID.eq(orderId))
                 .execute();
     }
 

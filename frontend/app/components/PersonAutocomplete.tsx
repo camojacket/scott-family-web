@@ -37,6 +37,8 @@ export interface PersonAutocompleteProps {
   onAddPerson?: (firstName: string, lastName: string, dob?: string, dod?: string) => Promise<number | null>;
   disabled?: boolean;
   placeholder?: string;
+  /** Person IDs to exclude from autocomplete results. */
+  excludePersonIds?: number[];
 }
 
 function useDebounced<T>(val: T, ms = 250) {
@@ -56,6 +58,7 @@ export default function PersonAutocomplete({
   onAddPerson,
   disabled,
   placeholder,
+  excludePersonIds,
 }: PersonAutocompleteProps) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -87,7 +90,10 @@ export default function PersonAutocomplete({
           credentials: 'include',
         });
         if (!res.ok) throw new Error('Search failed');
-        const data: PersonHit[] = await res.json();
+        let data: PersonHit[] = await res.json();
+        if (excludePersonIds?.length) {
+          data = data.filter(p => !excludePersonIds.includes(p.personId));
+        }
         if (!cancelled && mounted.current) setOptions(data || []);
       } catch {
         if (!cancelled && mounted.current) setOptions([]);

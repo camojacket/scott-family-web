@@ -28,6 +28,7 @@ import java.util.Map;
  *   GET    /api/store/products/{id}         — get single product
  *   POST   /api/store/orders                — create order from cart
  *   POST   /api/store/orders/{id}/confirm   — confirm payment
+ *   POST   /api/store/orders/{id}/cancel    — cancel own order (if PAID, not yet fulfilled)
  *   GET    /api/store/orders/mine           — get my orders
  *
  *   ── Admin ──
@@ -40,6 +41,7 @@ import java.util.Map;
  *   DELETE /api/store/admin/variants/{id}   — delete variant
  *   GET    /api/store/admin/orders          — list all orders
  *   PUT    /api/store/admin/orders/{id}/status — update order status
+ *   POST   /api/store/admin/orders/{id}/refund — initiate Square refund
  */
 @RestController
 @RequestMapping("/api/store")
@@ -128,6 +130,40 @@ public class StoreController {
         Long userId = userHelper.resolveUserId(auth.getName());
         if (userId == null) return ResponseEntity.status(403).body(Map.of("error", "Could not resolve user"));
         return ResponseEntity.ok(orderService.getOrdersByUser(userId));
+    }
+
+    /**
+     * User cancels their own order. Only allowed for PAID orders (not yet fulfilled).
+     * Stock is restored automatically by updateStatus.
+     */
+    @PostMapping("/orders/{id}/cancel")
+    public ResponseEntity<?> cancelMyOrder(@PathVariable Long id, Authentication auth) {
+        Long userId = userHelper.resolveUserId(auth.getName());
+        if (userId == null) return ResponseEntity.status(403).body(Map.of("error", "Could not resolve user"));
+
+        OrderDto order = orderService.getOrder(id);
+        if (order == null) return ResponseEntity.notFound().build();
+        if (!order.userId().equals(userId)) {
+            return ResponseEntity.status(403).body(Map.of("error", "Not your order"));
+        }
+
+        if (!"PAID".equals(order.status())) {
+            String msg = switch (order.status()) {
+                case "PENDING"   -> "Order payment has not been completed yet.";
+                case "FULFILLED" -> "Order has already been fulfilled. Please contact us for a refund.";
+                case "CANCELLED" -> "Order is already cancelled.";
+                case "REFUNDED"  -> "Order has already been refunded.";
+                default          -> "Order cannot be cancelled in its current state.";
+            };
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", msg));
+        }
+
+        try {
+            OrderDto updated = orderService.updateStatus(id, "CANCELLED");
+            return ResponseEntity.ok(updated);
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
+        }
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -250,6 +286,46 @@ public class StoreController {
         }
     }
 
+    /**
+     * Admin-initiated refund. The actual Square refund is done by the frontend
+     * calling /api/square/refund, then this endpoint records it on our side.
+     * Transitions the order to REFUNDED and restores stock.
+     */
+    @PreAuthorize("hasRole('ADMIN')")
+    @PostMapping("/admin/orders/{id}/refund")
+    public ResponseEntity<?> adminRefundOrder(
+            @PathVariable Long id,
+            @RequestBody(required = false) RefundNoteRequest refundNote
+    ) {
+        OrderDto order = orderService.getOrder(id);
+        if (order == null) return ResponseEntity.notFound().build();
+
+        // Allow refund from PAID, FULFILLED, or REQUIRES_REFUND
+        String status = order.status();
+        if (!"PAID".equals(status) && !"FULFILLED".equals(status) && !"REQUIRES_REFUND".equals(status)) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("error", "Cannot refund order in " + status + " state"));
+        }
+
+        try {
+            // Transition: PAID/FULFILLED → CANCELLED first (to restore stock), then → mark as REFUNDED
+            // OR: REQUIRES_REFUND → REFUNDED directly
+            if ("REQUIRES_REFUND".equals(status)) {
+                OrderDto updated = orderService.updateStatus(id, "REFUNDED");
+                return ResponseEntity.ok(updated);
+            }
+
+            // For PAID/FULFILLED, cancel first to restore stock, then a direct update to REFUNDED
+            orderService.updateStatus(id, "CANCELLED");
+            // Now set to REFUNDED (CANCELLED is terminal in state machine, so we do a direct update)
+            orderService.forceStatus(id, "REFUNDED",
+                    refundNote != null && refundNote.note != null ? refundNote.note : "Refunded by admin");
+            return ResponseEntity.ok(orderService.getOrder(id));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
+        }
+    }
+
     // ── Request DTOs ──
 
     public static class ConfirmOrderRequest {
@@ -259,5 +335,9 @@ public class StoreController {
 
     public static class StatusUpdateRequest {
         public String status;
+    }
+
+    public static class RefundNoteRequest {
+        public String note;
     }
 }

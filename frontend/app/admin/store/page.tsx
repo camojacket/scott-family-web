@@ -266,6 +266,47 @@ export default function AdminStorePage() {
     }
   };
 
+  const [refundingOrderId, setRefundingOrderId] = useState<number | null>(null);
+  const [refundDialog, setRefundDialog] = useState<OrderDto | null>(null);
+
+  const handleRefundOrder = async (order: OrderDto) => {
+    setRefundingOrderId(order.id);
+    try {
+      // Step 1: If order has a Square payment, issue refund via Square first
+      if (order.squarePaymentId) {
+        const res = await fetch('/api/square/refund', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            orderId: order.id,
+            squarePaymentId: order.squarePaymentId,
+            amountCents: order.totalCents,
+            reason: `Admin refund for order #${order.id}`,
+          }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({ error: 'Refund failed' }));
+          throw new Error(data.error || 'Square refund failed');
+        }
+      }
+
+      // Step 2: Record the refund on the backend (restores stock + marks REFUNDED)
+      await apiFetch(`/api/store/admin/orders/${order.id}/refund`, {
+        method: 'POST',
+        body: { note: 'Refunded by admin' },
+      });
+
+      setSnack({ msg: `Order #${order.id} refunded successfully`, severity: 'success' });
+      loadOrders();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to refund order';
+      setSnack({ msg, severity: 'error' });
+    } finally {
+      setRefundingOrderId(null);
+      setRefundDialog(null);
+    }
+  };
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}>
@@ -412,6 +453,8 @@ export default function AdminStorePage() {
                 <MenuItem value="PAID">Paid</MenuItem>
                 <MenuItem value="FULFILLED">Fulfilled</MenuItem>
                 <MenuItem value="CANCELLED">Cancelled</MenuItem>
+                <MenuItem value="REQUIRES_REFUND">Requires Refund</MenuItem>
+                <MenuItem value="REFUNDED">Refunded</MenuItem>
               </Select>
             </FormControl>
           </Box>
@@ -443,12 +486,14 @@ export default function AdminStorePage() {
                       <TableCell sx={{ fontWeight: 600 }}>{formatCents(o.totalCents)}</TableCell>
                       <TableCell>
                         <Chip
-                          label={o.status}
+                          label={o.status.replace('_', ' ')}
                           size="small"
                           color={
                             o.status === 'PAID' ? 'success' :
                             o.status === 'FULFILLED' ? 'info' :
-                            o.status === 'CANCELLED' ? 'default' : 'warning'
+                            o.status === 'CANCELLED' ? 'default' :
+                            o.status === 'REFUNDED' ? 'secondary' :
+                            o.status === 'REQUIRES_REFUND' ? 'error' : 'warning'
                           }
                           variant="outlined"
                         />
@@ -457,18 +502,35 @@ export default function AdminStorePage() {
                         {o.createdAt ? new Date(o.createdAt).toLocaleDateString() : '—'}
                       </TableCell>
                       <TableCell>
-                        <FormControl size="small" sx={{ minWidth: 120 }}>
-                          <Select
-                            value={o.status}
-                            onChange={e => handleUpdateOrderStatus(o.id, e.target.value)}
-                            size="small"
-                          >
-                            <MenuItem value="PENDING">Pending</MenuItem>
-                            <MenuItem value="PAID">Paid</MenuItem>
-                            <MenuItem value="FULFILLED">Fulfilled</MenuItem>
-                            <MenuItem value="CANCELLED">Cancelled</MenuItem>
-                          </Select>
-                        </FormControl>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <FormControl size="small" sx={{ minWidth: 120 }}>
+                            <Select
+                              value={o.status}
+                              onChange={e => handleUpdateOrderStatus(o.id, e.target.value)}
+                              size="small"
+                            >
+                              <MenuItem value="PENDING">Pending</MenuItem>
+                              <MenuItem value="PAID">Paid</MenuItem>
+                              <MenuItem value="FULFILLED">Fulfilled</MenuItem>
+                              <MenuItem value="CANCELLED">Cancelled</MenuItem>
+                              <MenuItem value="REQUIRES_REFUND">Requires Refund</MenuItem>
+                              <MenuItem value="REFUNDED">Refunded</MenuItem>
+                            </Select>
+                          </FormControl>
+
+                          {(['PAID', 'FULFILLED', 'REQUIRES_REFUND'] as const).includes(o.status as 'PAID' | 'FULFILLED' | 'REQUIRES_REFUND') && (
+                            <Button
+                              size="small"
+                              color="error"
+                              variant="outlined"
+                              disabled={refundingOrderId === o.id}
+                              onClick={() => setRefundDialog(o)}
+                              sx={{ textTransform: 'none', whiteSpace: 'nowrap' }}
+                            >
+                              {refundingOrderId === o.id ? 'Refunding…' : 'Refund'}
+                            </Button>
+                          )}
+                        </Stack>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -577,6 +639,38 @@ export default function AdminStorePage() {
           <Button onClick={() => setVariantDialog(false)}>Cancel</Button>
           <Button variant="contained" onClick={handleSaveVariant} disabled={varSaving}>
             {varSaving ? 'Saving...' : 'Add Variant'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ═════════ Refund Confirmation Dialog ═════════ */}
+      <Dialog open={!!refundDialog} onClose={() => setRefundDialog(null)}>
+        <DialogTitle>Refund Order #{refundDialog?.id}?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            This will issue a <strong>{refundDialog ? formatCents(refundDialog.totalCents) : ''}</strong> refund
+            {refundDialog?.squarePaymentId ? ' through Square' : ''} and
+            restore stock for the following items:
+          </Typography>
+          <Stack spacing={0.5} sx={{ ml: 2, mt: 1 }}>
+            {refundDialog?.items.map(i => (
+              <Typography key={i.id} variant="body2" sx={{ color: 'var(--text-secondary)' }}>
+                &bull; {i.productName} ({i.size}) x{i.quantity}
+              </Typography>
+            ))}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRefundDialog(null)} disabled={refundingOrderId !== null}>
+            Cancel
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            disabled={refundingOrderId !== null}
+            onClick={() => refundDialog && handleRefundOrder(refundDialog)}
+          >
+            {refundingOrderId !== null ? 'Processing…' : 'Confirm Refund'}
           </Button>
         </DialogActions>
       </Dialog>

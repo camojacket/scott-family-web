@@ -3,6 +3,9 @@ package com.scottfamily.scottfamily.controller;
 import com.scottfamily.scottfamily.service.DuesService;
 import com.scottfamily.scottfamily.service.DuesService.*;
 import com.scottfamily.scottfamily.service.DuePeriodService;
+import com.scottfamily.scottfamily.service.DuePeriodService.DuePeriodDto;
+import com.scottfamily.scottfamily.service.DuesPricingService;
+import com.scottfamily.scottfamily.service.DuesPricingService.PricingTierDto;
 import com.scottfamily.scottfamily.service.UserHelper;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -30,11 +33,14 @@ public class DuesController {
 
     private final DuesService duesService;
     private final DuePeriodService periodService;
+    private final DuesPricingService pricingService;
     private final UserHelper userHelper;
 
-    public DuesController(DuesService duesService, DuePeriodService periodService, UserHelper userHelper) {
+    public DuesController(DuesService duesService, DuePeriodService periodService,
+                          DuesPricingService pricingService, UserHelper userHelper) {
         this.duesService = duesService;
         this.periodService = periodService;
+        this.pricingService = pricingService;
         this.userHelper = userHelper;
     }
 
@@ -162,6 +168,51 @@ public class DuesController {
         return ResponseEntity.ok(result);
     }
 
+    // ═══════════════════════════════════════════════════════════
+    //  Pricing tiers (admin)
+    // ═══════════════════════════════════════════════════════════
+
+    /** Get pricing tiers for a specific year (falls back to defaults). */
+    @GetMapping("/pricing")
+    public List<PricingTierDto> getPricingTiers(
+            @RequestParam(required = false) Integer year
+    ) {
+        int y = year != null ? year : periodService.resolveReunionYear();
+        return pricingService.getTiersForYear(y);
+    }
+
+    /** Admin: get default tiers. */
+    @PreAuthorize("hasRole('ADMIN')")
+    @GetMapping("/admin/pricing/defaults")
+    public List<PricingTierDto> getDefaultPricingTiers() {
+        return pricingService.getDefaultTiers();
+    }
+
+    /** Admin: get year-specific tier overrides. */
+    @PreAuthorize("hasRole('ADMIN')")
+    @GetMapping("/admin/pricing")
+    public List<PricingTierDto> getAdminPricingTiers(
+            @RequestParam(required = false) Integer year
+    ) {
+        if (year != null) return pricingService.getYearSpecificTiers(year);
+        return pricingService.getDefaultTiers();
+    }
+
+    /** Admin: replace all tiers for a year (or defaults if year is null). */
+    @PreAuthorize("hasRole('ADMIN')")
+    @PutMapping("/admin/pricing")
+    public List<PricingTierDto> savePricingTiers(@RequestBody SavePricingRequest request) {
+        return pricingService.replaceTiers(request.reunionYear, request.tiers);
+    }
+
+    /** Admin: delete a single tier. */
+    @PreAuthorize("hasRole('ADMIN')")
+    @DeleteMapping("/admin/pricing/{id}")
+    public ResponseEntity<?> deleteTier(@PathVariable Long id) {
+        pricingService.deleteTier(id);
+        return ResponseEntity.ok(Map.of("deleted", true));
+    }
+
     // ── Request DTOs ──
 
     public static class PayRequest {
@@ -189,5 +240,10 @@ public class DuesController {
         public String dateOfBirth;
         public Integer reunionYear;
         public int amountCents;
+    }
+
+    public static class SavePricingRequest {
+        public Integer reunionYear;
+        public List<PricingTierDto> tiers;
     }
 }

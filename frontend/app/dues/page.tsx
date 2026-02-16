@@ -33,10 +33,10 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import { apiFetch } from '../lib/api';
 import { useFamilyName } from '../lib/FamilyNameContext';
 import PersonAutocomplete from '../components/PersonAutocomplete';
-import type { DuesPageDto, DuesBatchDto, DuePeriodResponse, DuePeriodDto } from '../lib/types';
+import type { DuesPageDto, DuesBatchDto, DuePeriodResponse, DuePeriodDto, PricingTierDto } from '../lib/types';
 
-/** Dues amount in cents — $25. Display-only; server enforces actual amount. */
-const DUES_AMOUNT_CENTS = 2500;
+/** Fallback amount in cents — used only when the server/tiers haven't loaded yet. */
+const FALLBACK_AMOUNT_CENTS = 2500;
 
 interface GuestEntry {
   name: string;
@@ -70,11 +70,32 @@ export default function DuesPage() {
 
   // ── Pay-on-behalf state ──
   const [payForSelf, setPayForSelf] = useState(false);
+  const [myPersonId, setMyPersonId] = useState<number | null>(null);
   const [guests, setGuests] = useState<GuestEntry[]>([]);
   const [guestName, setGuestName] = useState('');
   const [guestAge, setGuestAge] = useState('');
   const [onBehalfEntries, setOnBehalfEntries] = useState<OnBehalfEntry[]>([]);
   const [, setBatchResult] = useState<DuesBatchDto | null>(null);
+
+  // ── Pricing tiers ──
+  const [pricingTiers, setPricingTiers] = useState<PricingTierDto[]>([]);
+
+  // The amount for the logged-in user (server resolves by that user's DOB)
+  const selfAmountCents = pageData?.duesAmountCents ?? FALLBACK_AMOUNT_CENTS;
+
+  /** Resolve dues amount for a given age using fetched tiers. */
+  const resolvePriceByAge = useCallback(
+    (age: number): number => {
+      // Tiers are sorted by sortOrder; pick the first whose range matches
+      for (const t of pricingTiers) {
+        const minOk = t.minAge == null || age >= t.minAge;
+        const maxOk = t.maxAge == null || age <= t.maxAge;
+        if (minOk && maxOk) return t.amountCents;
+      }
+      return selfAmountCents; // fallback to the self amount
+    },
+    [pricingTiers, selfAmountCents],
+  );
 
   const loadDuesPage = useCallback(async () => {
     try {
@@ -93,12 +114,22 @@ export default function DuesPage() {
 
   useEffect(() => { loadDuesPage(); }, [loadDuesPage]);
 
-  // Detect admin role
+  // Fetch pricing tiers once we know the reunion year
+  useEffect(() => {
+    if (pageData) {
+      apiFetch<PricingTierDto[]>(`/api/dues/pricing?year=${pageData.reunionYear}`)
+        .then(setPricingTiers)
+        .catch(() => {});
+    }
+  }, [pageData?.reunionYear]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Detect admin role & own personId
   useEffect(() => {
     try {
       const p = JSON.parse(localStorage.getItem('profile') || '{}');
       const role: string = p?.userRole || '';
       setIsAdmin(role === 'ROLE_ADMIN' || role === 'ADMIN');
+      if (p?.personId) setMyPersonId(p.personId);
     } catch { /* ignore */ }
   }, []);
 
@@ -238,7 +269,10 @@ export default function DuesPage() {
   };
 
   const totalPeople = (payForSelf && !pageData?.selfPaid ? 1 : 0) + guests.length + onBehalfEntries.length;
-  const totalCents = totalPeople * DUES_AMOUNT_CENTS;
+  const totalCents =
+    (payForSelf && !pageData?.selfPaid ? selfAmountCents : 0) +
+    guests.reduce((sum, g) => sum + resolvePriceByAge(parseInt(g.age) || 0), 0) +
+    onBehalfEntries.length * selfAmountCents;  // Estimate for on-behalf; server computes actual
 
   const handleCheckout = async () => {
     if (totalPeople === 0) {
@@ -267,6 +301,7 @@ export default function DuesPage() {
         body: JSON.stringify({
           batchId: batch.batchId,
           personCount: batch.personCount,
+          totalCents: batch.totalCents,
           reunionYear,
         }),
       });
@@ -554,7 +589,7 @@ export default function DuesPage() {
                   {reunionYear} Annual Dues
                 </Typography>
                 <Typography variant="h4" sx={{ fontWeight: 800, color: 'var(--color-primary-600)' }}>
-                  {formatCents(DUES_AMOUNT_CENTS)}
+                  {formatCents(selfAmountCents)}
                 </Typography>
                 <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mt: 0.5 }}>
                   per person &mdash; not yet paid
@@ -651,7 +686,7 @@ export default function DuesPage() {
 
             <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mb: 2 }}>
               Pay your own dues and/or pay on behalf of family members.
-              Each person&apos;s dues are {formatCents(DUES_AMOUNT_CENTS)}.
+              {pricingTiers.length > 0 ? ' Pricing varies by age.' : ` Each person\u2019s dues are ${formatCents(selfAmountCents)}.`}
             </Typography>
 
             {/* Pay for self checkbox */}
@@ -666,7 +701,7 @@ export default function DuesPage() {
                 }
                 label={
                   <Typography sx={{ fontWeight: 600 }}>
-                    Pay my dues ({formatCents(DUES_AMOUNT_CENTS)})
+                    Pay my dues ({formatCents(selfAmountCents)})
                   </Typography>
                 }
                 sx={{ mb: 2 }}
@@ -730,7 +765,7 @@ export default function DuesPage() {
                     <Box>
                       <Typography sx={{ fontWeight: 600 }}>{g.name}</Typography>
                       <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>
-                        Age {g.age} &bull; {formatCents(DUES_AMOUNT_CENTS)}
+                        Age {g.age} &bull; {formatCents(resolvePriceByAge(parseInt(g.age) || 0))}
                       </Typography>
                     </Box>
                     <IconButton
@@ -761,6 +796,7 @@ export default function DuesPage() {
                 onChange={() => { /* handled by onChangeFull */ }}
                 onChangeFull={addOnBehalf}
                 placeholder="Type a name to search…"
+                excludePersonIds={myPersonId ? [myPersonId] : undefined}
               />
             </Box>
 
@@ -783,7 +819,7 @@ export default function DuesPage() {
                     <Box>
                       <Typography sx={{ fontWeight: 600 }}>{entry.displayName}</Typography>
                       <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>
-                        {formatCents(DUES_AMOUNT_CENTS)}
+                        {formatCents(selfAmountCents)}
                       </Typography>
                     </Box>
                     <IconButton

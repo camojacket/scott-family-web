@@ -12,6 +12,12 @@ import {
   Alert,
   Snackbar,
   CircularProgress,
+  Chip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import RemoveIcon from '@mui/icons-material/Remove';
@@ -20,6 +26,7 @@ import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import PaymentIcon from '@mui/icons-material/Payment';
 import StorefrontIcon from '@mui/icons-material/Storefront';
+import CancelIcon from '@mui/icons-material/Cancel';
 import Link from 'next/link';
 import { apiFetch } from '../../lib/api';
 import { useCart } from '../../lib/CartContext';
@@ -33,6 +40,14 @@ export default function CartPage() {
   const [verifying, setVerifying] = useState(false);
   const [snack, setSnack] = useState<{ msg: string; severity: 'success' | 'error' | 'info' } | null>(null);
   const pollingRef = useRef(false);
+
+  // Cancel flow
+  const [cancelDialog, setCancelDialog] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+
+  // Order history
+  const [myOrders, setMyOrders] = useState<OrderDto[]>([]);
+  const [loadingOrders, setLoadingOrders] = useState(false);
 
   const formatCents = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -128,6 +143,38 @@ export default function CartPage() {
     }
   };
 
+  // ── Cancel order ──
+  const handleCancelOrder = async () => {
+    if (!orderResult) return;
+    setCancelling(true);
+    try {
+      await apiFetch(`/api/store/orders/${orderResult.id}/cancel`, { method: 'POST' });
+      setSnack({ msg: 'Order cancelled successfully.', severity: 'success' });
+      setOrderResult(null);
+      loadMyOrders();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to cancel order';
+      setSnack({ msg: message, severity: 'error' });
+    } finally {
+      setCancelling(false);
+      setCancelDialog(false);
+    }
+  };
+
+  // ── Load order history ──
+  const loadMyOrders = async () => {
+    setLoadingOrders(true);
+    try {
+      const orders = await apiFetch<OrderDto[]>('/api/store/orders/mine');
+      setMyOrders(orders);
+    } catch { /* ignore - not logged in */ }
+    finally { setLoadingOrders(false); }
+  };
+
+  useEffect(() => {
+    loadMyOrders();
+  }, []);
+
   // ── Payment verification view ──
   if (verifying) {
     return (
@@ -171,18 +218,61 @@ export default function CartPage() {
             ))}
           </Stack>
 
-          <Button
-            component={Link}
-            href="/store"
-            variant="contained"
-            sx={{
-              bgcolor: 'var(--color-primary-500)',
-              '&:hover': { bgcolor: 'var(--color-primary-600)' },
-            }}
-          >
-            Continue Shopping
-          </Button>
+          <Stack direction="row" spacing={2} justifyContent="center">
+            <Button
+              component={Link}
+              href="/store"
+              variant="contained"
+              sx={{
+                bgcolor: 'var(--color-primary-500)',
+                '&:hover': { bgcolor: 'var(--color-primary-600)' },
+              }}
+            >
+              Continue Shopping
+            </Button>
+
+            {orderResult.status === 'PAID' && (
+              <Button
+                variant="outlined"
+                color="error"
+                startIcon={cancelling ? <CircularProgress size={16} /> : <CancelIcon />}
+                onClick={() => setCancelDialog(true)}
+                disabled={cancelling}
+              >
+                Cancel Order
+              </Button>
+            )}
+          </Stack>
+
+          {orderResult.status === 'PAID' && (
+            <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mt: 2 }}>
+              You can cancel this order before it ships. A refund will be issued to your original payment method.
+            </Typography>
+          )}
         </Box>
+
+        {/* Cancel confirmation dialog */}
+        <Dialog open={cancelDialog} onClose={() => setCancelDialog(false)}>
+          <DialogTitle>Cancel Order #{orderResult.id}?</DialogTitle>
+          <DialogContent>
+            <DialogContentText>
+              Are you sure you want to cancel this order? This cannot be undone.
+              A refund of {formatCents(orderResult.totalCents)} will be issued.
+            </DialogContentText>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setCancelDialog(false)} disabled={cancelling}>Keep Order</Button>
+            <Button
+              onClick={handleCancelOrder}
+              color="error"
+              variant="contained"
+              disabled={cancelling}
+              startIcon={cancelling ? <CircularProgress size={16} /> : undefined}
+            >
+              {cancelling ? 'Cancelling...' : 'Cancel Order'}
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Box>
     );
   }
@@ -190,8 +280,8 @@ export default function CartPage() {
   // ── Empty cart view ──
   if (items.length === 0) {
     return (
-      <Box sx={{ maxWidth: 600, mx: 'auto', py: { xs: 3, sm: 5 }, textAlign: 'center' }}>
-        <Box className="card" sx={{ p: 6 }}>
+      <Box sx={{ maxWidth: 700, mx: 'auto', py: { xs: 3, sm: 5 } }}>
+        <Box className="card" sx={{ p: 6, textAlign: 'center' }}>
           <ShoppingCartIcon sx={{ fontSize: 56, color: 'var(--color-primary-300)', mb: 2 }} />
           <Typography variant="h6" sx={{ color: 'var(--text-secondary)', mb: 1 }}>
             Your cart is empty
@@ -212,6 +302,52 @@ export default function CartPage() {
             Browse Store
           </Button>
         </Box>
+
+        {/* Order History */}
+        {myOrders.length > 0 && (
+          <Box sx={{ mt: 4 }}>
+            <Typography variant="h5" sx={{ fontWeight: 700, mb: 2 }}>
+              My Orders
+            </Typography>
+            <Stack spacing={2}>
+              {myOrders.map(order => (
+                <OrderHistoryCard
+                  key={order.id}
+                  order={order}
+                  formatCents={formatCents}
+                  onCancel={async (id) => {
+                    try {
+                      await apiFetch(`/api/store/orders/${id}/cancel`, { method: 'POST' });
+                      setSnack({ msg: 'Order cancelled.', severity: 'success' });
+                      loadMyOrders();
+                    } catch (err: unknown) {
+                      const msg = err instanceof Error ? err.message : 'Failed to cancel';
+                      setSnack({ msg, severity: 'error' });
+                    }
+                  }}
+                />
+              ))}
+            </Stack>
+          </Box>
+        )}
+        {loadingOrders && (
+          <Box sx={{ textAlign: 'center', mt: 3 }}>
+            <CircularProgress size={24} />
+          </Box>
+        )}
+
+        <Snackbar
+          open={!!snack}
+          autoHideDuration={4000}
+          onClose={() => setSnack(null)}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        >
+          {snack ? (
+            <Alert severity={snack.severity} onClose={() => setSnack(null)} variant="filled">
+              {snack.msg}
+            </Alert>
+          ) : undefined}
+        </Snackbar>
       </Box>
     );
   }
@@ -367,6 +503,110 @@ export default function CartPage() {
           </Alert>
         ) : undefined}
       </Snackbar>
+    </Box>
+  );
+}
+
+// ── Order History Card ──
+
+function OrderHistoryCard({
+  order,
+  formatCents,
+  onCancel,
+}: {
+  order: OrderDto;
+  formatCents: (c: number) => string;
+  onCancel: (id: number) => Promise<void>;
+}) {
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+
+  const statusColor = (s: string) => {
+    switch (s) {
+      case 'PAID': return 'success' as const;
+      case 'FULFILLED': return 'info' as const;
+      case 'CANCELLED': return 'default' as const;
+      case 'REFUNDED': return 'secondary' as const;
+      case 'REQUIRES_REFUND': return 'warning' as const;
+      default: return 'warning' as const;
+    }
+  };
+
+  const handleCancel = async () => {
+    setCancelling(true);
+    await onCancel(order.id);
+    setCancelling(false);
+    setConfirmOpen(false);
+  };
+
+  return (
+    <Box className="card" sx={{ p: 2 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+        <Typography sx={{ fontWeight: 700 }}>
+          Order #{order.id}
+        </Typography>
+        <Chip
+          label={order.status.replace('_', ' ')}
+          size="small"
+          color={statusColor(order.status)}
+          variant="outlined"
+        />
+      </Box>
+
+      <Stack spacing={0.5} sx={{ mb: 1 }}>
+        {order.items.map(item => (
+          <Typography key={item.id} variant="body2" sx={{ color: 'var(--text-secondary)' }}>
+            {item.productName} ({item.size}{item.color ? `, ${item.color}` : ''}) x{item.quantity}
+            {' '}&mdash; {formatCents(item.unitPriceCents * item.quantity)}
+          </Typography>
+        ))}
+      </Stack>
+
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>
+          {order.createdAt ? new Date(order.createdAt).toLocaleDateString() : ''}
+          {' '}&bull; Total: <strong>{formatCents(order.totalCents)}</strong>
+        </Typography>
+
+        {order.status === 'PAID' && (
+          <Button
+            size="small"
+            color="error"
+            variant="outlined"
+            startIcon={cancelling ? <CircularProgress size={14} /> : <CancelIcon />}
+            onClick={() => setConfirmOpen(true)}
+            disabled={cancelling}
+            sx={{ textTransform: 'none' }}
+          >
+            Cancel
+          </Button>
+        )}
+      </Box>
+
+      {order.squareReceiptUrl && (
+        <Typography variant="body2" sx={{ mt: 0.5 }}>
+          <a href={order.squareReceiptUrl} target="_blank" rel="noopener noreferrer"
+            style={{ color: 'var(--color-primary-500)' }}>
+            View Receipt
+          </a>
+        </Typography>
+      )}
+
+      <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)}>
+        <DialogTitle>Cancel Order #{order.id}?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Are you sure? A refund of {formatCents(order.totalCents)} will be issued.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmOpen(false)} disabled={cancelling}>Keep Order</Button>
+          <Button onClick={handleCancel} color="error" variant="contained" disabled={cancelling}
+            startIcon={cancelling ? <CircularProgress size={16} /> : undefined}>
+            {cancelling ? 'Cancelling...' : 'Cancel Order'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

@@ -45,11 +45,11 @@ export async function POST(req: NextRequest) {
         { status: 401 },
       );
     }
-    const { batchId, personCount, reunionYear } = await req.json();
+    const { batchId, personCount, totalCents, reunionYear } = await req.json();
 
-    if (!batchId || !personCount) {
+    if (!batchId || !personCount || !totalCents) {
       return NextResponse.json(
-        { error: 'batchId and personCount are required' },
+        { error: 'batchId, personCount, and totalCents are required' },
         { status: 400 },
       );
     }
@@ -79,10 +79,10 @@ export async function POST(req: NextRequest) {
         referenceId,
         lineItems: [
           {
-            name: `${year} Reunion Dues`,
-            quantity: String(personCount),
+            name: `${year} Reunion Dues (${personCount} ${personCount === 1 ? 'person' : 'people'})`,
+            quantity: '1',
             basePriceMoney: {
-              amount: BigInt(2500), // $25.00 per person — must match server-side DUES_AMOUNT_CENTS
+              amount: BigInt(totalCents), // Total from server-computed batch
               currency: 'USD',
             },
           },

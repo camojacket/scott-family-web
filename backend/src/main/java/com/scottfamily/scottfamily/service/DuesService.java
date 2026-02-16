@@ -8,7 +8,9 @@ import org.jooq.impl.DSL;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.Period;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -23,7 +25,7 @@ import static com.yourproject.generated.scott_family_web.Tables.PEOPLE;
 @Service
 public class DuesService {
 
-    /** Server-authoritative dues amount — $25.00. Clients cannot override. */
+    /** Hard-coded fallback amount — $25.00. Used when no pricing tier matches. */
     public static final int DUES_AMOUNT_CENTS = 2500;
 
     // ── Inline DSL refs (table not yet in codegen) ──
@@ -47,10 +49,12 @@ public class DuesService {
 
     private final DSLContext dsl;
     private final UserHelper userHelper;
+    private final DuesPricingService pricingService;
 
-    public DuesService(DSLContext dsl, UserHelper userHelper) {
+    public DuesService(DSLContext dsl, UserHelper userHelper, DuesPricingService pricingService) {
         this.dsl = dsl;
         this.userHelper = userHelper;
+        this.pricingService = pricingService;
     }
 
     // ── DTOs ──
@@ -300,7 +304,8 @@ public class DuesService {
                         .and(DSL.or(STATUS.eq("COMPLETED"), STATUS.eq("PENDING"))))
                 .fetch(PERSON_ID_F);
 
-        return new DuesPageDto(year, DUES_AMOUNT_CENTS, selfPaid, selfPayment, guestPayments, onBehalfPayments, paidForYouPayment, paidPersonIds);
+        int userDuesAmount = resolveAmountForUser(userId, year);
+        return new DuesPageDto(year, userDuesAmount, selfPaid, selfPayment, guestPayments, onBehalfPayments, paidForYouPayment, paidPersonIds);
     }
 
     // ── Write ──
@@ -354,9 +359,11 @@ public class DuesService {
             return getByUserAndYear(userId, year); // already paid
         }
 
+        int selfAmountCents = resolveAmountForUser(userId, year);
+
         if (existing != null) {
             dsl.update(DUES)
-                    .set(AMOUNT_CENTS, DUES_AMOUNT_CENTS)
+                    .set(AMOUNT_CENTS, selfAmountCents)
                     .set(STATUS, "PENDING")
                     .set(PAID_BY, userId)
                     .set(UPDATED_AT, OffsetDateTime.now())
@@ -367,7 +374,7 @@ public class DuesService {
                     .set(USER_ID, userId)
                     .set(PAID_BY, userId)
                     .set(REUNION_YEAR, year)
-                    .set(AMOUNT_CENTS, DUES_AMOUNT_CENTS)
+                    .set(AMOUNT_CENTS, selfAmountCents)
                     .set(STATUS, "PENDING")
                     .execute();
         }
@@ -442,9 +449,11 @@ public class DuesService {
                 throw new IllegalArgumentException("Your dues are already paid for " + year);
             }
 
+            int selfAmountCents = resolveAmountForUser(paidByUserId, year);
+
             if (existing != null) {
                 dsl.update(DUES)
-                        .set(AMOUNT_CENTS, DUES_AMOUNT_CENTS)
+                        .set(AMOUNT_CENTS, selfAmountCents)
                         .set(STATUS, "PENDING")
                         .set(BATCH_ID_F, batchId)
                         .set(PAID_BY, paidByUserId)
@@ -457,7 +466,7 @@ public class DuesService {
                         .set(USER_ID, paidByUserId)
                         .set(PAID_BY, paidByUserId)
                         .set(REUNION_YEAR, year)
-                        .set(AMOUNT_CENTS, DUES_AMOUNT_CENTS)
+                        .set(AMOUNT_CENTS, selfAmountCents)
                         .set(STATUS, "PENDING")
                         .set(BATCH_ID_F, batchId)
                         .returningResult(ID)
@@ -468,12 +477,13 @@ public class DuesService {
 
         if (guests != null) {
             for (GuestInfo guest : guests) {
+                int guestAmountCents = resolveAmountForGuest(guest.age(), year);
                 var result = dsl.insertInto(DUES)
                         .set(PAID_BY, paidByUserId)
                         .set(GUEST_NAME_F, guest.name())
                         .set(GUEST_AGE_F, guest.age())
                         .set(REUNION_YEAR, year)
-                        .set(AMOUNT_CENTS, DUES_AMOUNT_CENTS)
+                        .set(AMOUNT_CENTS, guestAmountCents)
                         .set(STATUS, "PENDING")
                         .set(BATCH_ID_F, batchId)
                         .returningResult(ID)
@@ -490,6 +500,7 @@ public class DuesService {
 
                 // If paying for a user, check if they already paid
                 if (targetUserId != null) {
+                    int targetAmount = resolveAmountForUser(targetUserId, year);
                     Record existing = dsl.select(ID, STATUS)
                             .from(DUES)
                             .where(USER_ID.eq(targetUserId).and(REUNION_YEAR.eq(year)))
@@ -501,7 +512,7 @@ public class DuesService {
 
                     if (existing != null) {
                         dsl.update(DUES)
-                                .set(AMOUNT_CENTS, DUES_AMOUNT_CENTS)
+                                .set(AMOUNT_CENTS, targetAmount)
                                 .set(STATUS, "PENDING")
                                 .set(BATCH_ID_F, batchId)
                                 .set(PAID_BY, paidByUserId)
@@ -522,7 +533,7 @@ public class DuesService {
                                 .set(PERSON_ID_F, targetPersonId)
                                 .set(PAID_BY, paidByUserId)
                                 .set(REUNION_YEAR, year)
-                                .set(AMOUNT_CENTS, DUES_AMOUNT_CENTS)
+                                .set(AMOUNT_CENTS, targetAmount)
                                 .set(STATUS, "PENDING")
                                 .set(BATCH_ID_F, batchId)
                                 .returningResult(ID)
@@ -531,6 +542,7 @@ public class DuesService {
                     }
                 } else if (targetPersonId != null) {
                     // Person without account — check if already paid by person_id
+                    int personAmount = resolveAmountForPerson(targetPersonId, year);
                     Record existing = dsl.select(ID, STATUS)
                             .from(DUES)
                             .where(PERSON_ID_F.eq(targetPersonId).and(REUNION_YEAR.eq(year)))
@@ -545,7 +557,7 @@ public class DuesService {
 
                     if (existing != null) {
                         dsl.update(DUES)
-                                .set(AMOUNT_CENTS, DUES_AMOUNT_CENTS)
+                                .set(AMOUNT_CENTS, personAmount)
                                 .set(STATUS, "PENDING")
                                 .set(BATCH_ID_F, batchId)
                                 .set(PAID_BY, paidByUserId)
@@ -560,7 +572,7 @@ public class DuesService {
                                 .set(PAID_BY, paidByUserId)
                                 .set(GUEST_NAME_F, personName)
                                 .set(REUNION_YEAR, year)
-                                .set(AMOUNT_CENTS, DUES_AMOUNT_CENTS)
+                                .set(AMOUNT_CENTS, personAmount)
                                 .set(STATUS, "PENDING")
                                 .set(BATCH_ID_F, batchId)
                                 .returningResult(ID)
@@ -575,7 +587,7 @@ public class DuesService {
                 .map(this::getById)
                 .toList();
 
-        int totalCents = DUES_AMOUNT_CENTS * payments.size();
+        int totalCents = payments.stream().mapToInt(DuesPaymentDto::amountCents).sum();
         return new DuesBatchDto(batchId, totalCents, payments.size(), payments);
     }
 
@@ -758,6 +770,43 @@ public class DuesService {
             return (first + " " + (last != null ? last : "")).trim();
         }
         return "Unknown";
+    }
+
+    /**
+     * Resolve the dues amount for a user by looking up their DOB from the people table.
+     * Falls back to DUES_AMOUNT_CENTS if no DOB or no matching tier.
+     */
+    private int resolveAmountForUser(Long userId, int year) {
+        if (userId == null) return DUES_AMOUNT_CENTS;
+        LocalDate dob = dsl.select(PEOPLE.DATE_OF_BIRTH)
+                .from(USERS)
+                .leftJoin(PEOPLE).on(USERS.PERSON_ID.eq(PEOPLE.ID))
+                .where(USERS.ID.eq(userId))
+                .fetchOne(PEOPLE.DATE_OF_BIRTH);
+        if (dob == null) return DUES_AMOUNT_CENTS;
+        int age = Period.between(dob, LocalDate.now()).getYears();
+        return pricingService.resolveAmount(age, year);
+    }
+
+    /**
+     * Resolve the dues amount for a person (by person ID) by looking up their DOB.
+     */
+    private int resolveAmountForPerson(Long personId, int year) {
+        if (personId == null) return DUES_AMOUNT_CENTS;
+        LocalDate dob = dsl.select(PEOPLE.DATE_OF_BIRTH)
+                .from(PEOPLE)
+                .where(PEOPLE.ID.eq(personId))
+                .fetchOne(PEOPLE.DATE_OF_BIRTH);
+        if (dob == null) return DUES_AMOUNT_CENTS;
+        int age = Period.between(dob, LocalDate.now()).getYears();
+        return pricingService.resolveAmount(age, year);
+    }
+
+    /**
+     * Resolve the dues amount for a guest (by explicit age).
+     */
+    private int resolveAmountForGuest(int guestAge, int year) {
+        return pricingService.resolveAmount(guestAge, year);
     }
 
     private DuesPaymentDto mapRecord(Record rec) {

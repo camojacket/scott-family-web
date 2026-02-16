@@ -24,6 +24,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.scottfamily.scottfamily.service.DuesService;
 import com.scottfamily.scottfamily.service.OrderService;
+import com.scottfamily.scottfamily.service.OrderService.*;
 
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -109,6 +110,7 @@ public class SquareWebhookController {
 
             switch (eventType) {
                 case "payment.created", "payment.updated" -> handlePaymentEvent(root);
+                case "refund.created", "refund.updated" -> handleRefundEvent(root);
                 default -> log.info("Square webhook: ignoring event type {}", eventType);
             }
         } catch (Exception e) {
@@ -303,6 +305,67 @@ public class SquareWebhookController {
             log.info("Square webhook: concurrent transition for {}, already handled: {}", referenceId, e.getMessage());
         } catch (NumberFormatException e) {
             log.error("Square webhook: failed to parse reference_id: {}", referenceId, e);
+        }
+    }
+
+    /**
+     * Handle refund.created and refund.updated events.
+     * When Square confirms a refund is COMPLETED, mark the order as REFUNDED.
+     */
+    private void handleRefundEvent(JsonNode root) {
+        try {
+            JsonNode data = root.path("data").path("object").path("refund");
+            String refundId = data.has("id") ? data.get("id").asText() : null;
+            String status = data.has("status") ? data.get("status").asText() : null;
+            String paymentId = data.has("payment_id") ? data.get("payment_id").asText() : null;
+
+            if (refundId == null) {
+                log.warn("Square webhook: no refund ID in event");
+                return;
+            }
+
+            log.info("Square webhook: refund {} status={} payment={}", refundId, status, paymentId);
+
+            // Only act on completed refunds
+            if (!"COMPLETED".equals(status)) {
+                log.info("Square webhook: refund {} status is {}, skipping (not terminal)", refundId, status);
+                return;
+            }
+
+            if (paymentId == null || paymentId.isBlank()) {
+                log.warn("Square webhook: refund {} has no payment_id, cannot reconcile", refundId);
+                return;
+            }
+
+            // Look up the order by its Square payment ID and mark it REFUNDED
+            OrderDto order = orderService.findBySquarePaymentId(paymentId);
+            if (order == null) {
+                log.info("Square webhook: no order found for payment_id {}, may be a dues refund", paymentId);
+                return;
+            }
+
+            if ("REFUNDED".equals(order.status())) {
+                log.info("Square webhook: order {} already REFUNDED, skipping", order.id());
+                return;
+            }
+
+            // If the order is still PAID/FULFILLED, cancel first to restore stock, then mark REFUNDED
+            String currentStatus = order.status();
+            if ("PAID".equals(currentStatus) || "FULFILLED".equals(currentStatus)) {
+                orderService.updateStatus(order.id(), "CANCELLED");
+                orderService.forceStatus(order.id(), "REFUNDED", "Refunded via Square (refund " + refundId + ")");
+            } else if ("CANCELLED".equals(currentStatus) || "REQUIRES_REFUND".equals(currentStatus)) {
+                // Stock already restored or was never decremented
+                orderService.forceStatus(order.id(), "REFUNDED", "Refunded via Square (refund " + refundId + ")");
+            } else {
+                log.warn("Square webhook: order {} in unexpected status {} for refund, forcing REFUNDED",
+                        order.id(), currentStatus);
+                orderService.forceStatus(order.id(), "REFUNDED", "Refunded via Square (refund " + refundId + ")");
+            }
+
+            log.info("Square webhook: order {} marked REFUNDED for refund {}", order.id(), refundId);
+        } catch (Exception e) {
+            log.error("Square webhook: error handling refund event", e);
         }
     }
 

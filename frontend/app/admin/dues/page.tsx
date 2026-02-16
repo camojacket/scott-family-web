@@ -26,14 +26,21 @@ import {
   TextField,
   Divider,
   IconButton,
+  Collapse,
+  Switch,
+  FormControlLabel,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import PaymentIcon from '@mui/icons-material/Payment';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import DeleteIcon from '@mui/icons-material/Delete';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import AddIcon from '@mui/icons-material/Add';
+import SaveIcon from '@mui/icons-material/Save';
 import Link from 'next/link';
 import { apiFetch } from '../../lib/api';
-import type { DuesStatusDto, DuesSummaryDto, DuePeriodResponse } from '../../lib/types';
+import type { DuesStatusDto, DuesSummaryDto, DuePeriodResponse, PricingTierDto } from '../../lib/types';
 
 const PAGE_SIZES = [10, 50, 100];
 
@@ -50,6 +57,15 @@ export default function AdminDuesPage() {
   const [sortField, setSortField] = useState<SortField>('name');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [year, setYear] = useState(new Date().getFullYear());
+
+  // ── Pricing tier state ──
+  const [pricingOpen, setPricingOpen] = useState(false);
+  const [pricingTiers, setPricingTiers] = useState<PricingTierDto[]>([]);
+  const [pricingDirty, setPricingDirty] = useState(false);
+  const [pricingSaving, setPricingSaving] = useState(false);
+  const [useYearOverrides, setUseYearOverrides] = useState(false);
+  const [defaultTiers, setDefaultTiers] = useState<PricingTierDto[]>([]);
+  const [yearTiers, setYearTiers] = useState<PricingTierDto[]>([]);
 
   // Load period to get the correct reunion year
   useEffect(() => {
@@ -106,6 +122,97 @@ export default function AdminDuesPage() {
   };
 
   useEffect(() => { load(); }, [year]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Load pricing tiers ──
+  const loadPricing = async () => {
+    try {
+      const [defs, overrides] = await Promise.all([
+        apiFetch<PricingTierDto[]>('/api/dues/admin/pricing/defaults'),
+        apiFetch<PricingTierDto[]>(`/api/dues/admin/pricing?year=${year}`),
+      ]);
+      setDefaultTiers(defs);
+      setYearTiers(overrides);
+      const hasOverrides = overrides.length > 0;
+      setUseYearOverrides(hasOverrides);
+      setPricingTiers(hasOverrides ? overrides : defs);
+      setPricingDirty(false);
+    } catch {
+      setSnack({ msg: 'Failed to load pricing tiers', severity: 'error' });
+    }
+  };
+
+  useEffect(() => { if (pricingOpen) loadPricing(); }, [pricingOpen, year]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleTierChange = (index: number, field: keyof PricingTierDto, value: string) => {
+    setPricingTiers(prev => {
+      const updated = [...prev];
+      const tier = { ...updated[index] };
+      if (field === 'label') {
+        tier.label = value;
+      } else if (field === 'minAge') {
+        tier.minAge = value === '' ? undefined : parseInt(value);
+      } else if (field === 'maxAge') {
+        tier.maxAge = value === '' ? undefined : parseInt(value);
+      } else if (field === 'amountCents') {
+        tier.amountCents = Math.round(parseFloat(value || '0') * 100);
+      } else if (field === 'sortOrder') {
+        tier.sortOrder = parseInt(value) || 0;
+      }
+      updated[index] = tier;
+      return updated;
+    });
+    setPricingDirty(true);
+  };
+
+  const addTier = () => {
+    setPricingTiers(prev => [
+      ...prev,
+      { label: '', minAge: undefined, maxAge: undefined, amountCents: 2500, sortOrder: prev.length + 1 },
+    ]);
+    setPricingDirty(true);
+  };
+
+  const removeTier = (index: number) => {
+    setPricingTiers(prev => prev.filter((_, i) => i !== index));
+    setPricingDirty(true);
+  };
+
+  const savePricing = async () => {
+    setPricingSaving(true);
+    try {
+      await apiFetch('/api/dues/admin/pricing', {
+        method: 'PUT',
+        body: {
+          reunionYear: useYearOverrides ? year : null,
+          tiers: pricingTiers.map((t, i) => ({
+            label: t.label,
+            minAge: t.minAge ?? null,
+            maxAge: t.maxAge ?? null,
+            amountCents: t.amountCents,
+            sortOrder: t.sortOrder ?? i + 1,
+          })),
+        },
+      });
+      setPricingDirty(false);
+      setSnack({ msg: 'Pricing tiers saved', severity: 'success' });
+      loadPricing();
+    } catch {
+      setSnack({ msg: 'Failed to save pricing tiers', severity: 'error' });
+    } finally {
+      setPricingSaving(false);
+    }
+  };
+
+  const handleOverrideToggle = (checked: boolean) => {
+    setUseYearOverrides(checked);
+    if (checked) {
+      // Copy defaults as starting point for year overrides
+      setPricingTiers(yearTiers.length > 0 ? yearTiers : defaultTiers.map(t => ({ ...t, id: undefined, reunionYear: year })));
+    } else {
+      setPricingTiers(defaultTiers);
+    }
+    setPricingDirty(true);
+  };
 
   // Sorting
   const sorted = useMemo(() => {
@@ -288,6 +395,146 @@ export default function AdminDuesPage() {
           </Paper>
         </Stack>
       )}
+
+      {/* ── Pricing Tiers Section ── */}
+      <Paper
+        elevation={0}
+        sx={{ mb: 4, border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}
+      >
+        <Box
+          onClick={() => setPricingOpen(o => !o)}
+          sx={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            px: 2.5, py: 1.5, cursor: 'pointer',
+            '&:hover': { bgcolor: 'rgba(0,0,0,0.02)' },
+          }}
+        >
+          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+            Pricing Tiers (by Age)
+          </Typography>
+          <IconButton size="small">
+            {pricingOpen ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+          </IconButton>
+        </Box>
+        <Collapse in={pricingOpen}>
+          <Divider />
+          <Box sx={{ p: 2.5 }}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={useYearOverrides}
+                  onChange={(_, c) => handleOverrideToggle(c)}
+                  size="small"
+                />
+              }
+              label={
+                <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>
+                  Use custom pricing for {year} (otherwise uses global defaults)
+                </Typography>
+              }
+              sx={{ mb: 2 }}
+            />
+
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700 }}>Label</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 90 }}>Min Age</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 90 }}>Max Age</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 110 }}>Amount ($)</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 80 }}>Order</TableCell>
+                    <TableCell sx={{ width: 50 }} />
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {pricingTiers.map((tier, i) => (
+                    <TableRow key={tier.id ?? `new-${i}`}>
+                      <TableCell>
+                        <TextField
+                          value={tier.label}
+                          onChange={e => handleTierChange(i, 'label', e.target.value)}
+                          size="small"
+                          fullWidth
+                          variant="standard"
+                          placeholder="e.g. Adult"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <TextField
+                          value={tier.minAge ?? ''}
+                          onChange={e => handleTierChange(i, 'minAge', e.target.value)}
+                          size="small"
+                          type="number"
+                          variant="standard"
+                          slotProps={{ htmlInput: { min: 0 } }}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <TextField
+                          value={tier.maxAge ?? ''}
+                          onChange={e => handleTierChange(i, 'maxAge', e.target.value)}
+                          size="small"
+                          type="number"
+                          variant="standard"
+                          slotProps={{ htmlInput: { min: 0 } }}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <TextField
+                          value={(tier.amountCents / 100).toFixed(2)}
+                          onChange={e => handleTierChange(i, 'amountCents', e.target.value)}
+                          size="small"
+                          type="number"
+                          variant="standard"
+                          slotProps={{ htmlInput: { min: 0, step: 0.01 } }}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <TextField
+                          value={tier.sortOrder}
+                          onChange={e => handleTierChange(i, 'sortOrder', e.target.value)}
+                          size="small"
+                          type="number"
+                          variant="standard"
+                          slotProps={{ htmlInput: { min: 1 } }}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <IconButton size="small" onClick={() => removeTier(i)} sx={{ color: 'var(--color-error-500)' }}>
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {pricingTiers.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={6} sx={{ textAlign: 'center', color: 'var(--text-secondary)', py: 3 }}>
+                        No pricing tiers configured. Add one to get started.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+
+            <Stack direction="row" spacing={1.5} sx={{ mt: 2, justifyContent: 'space-between' }}>
+              <Button size="small" startIcon={<AddIcon />} onClick={addTier}>
+                Add Tier
+              </Button>
+              <Button
+                size="small"
+                variant="contained"
+                startIcon={<SaveIcon />}
+                onClick={savePricing}
+                disabled={!pricingDirty || pricingSaving}
+              >
+                {pricingSaving ? 'Saving...' : 'Save Pricing'}
+              </Button>
+            </Stack>
+          </Box>
+        </Collapse>
+      </Paper>
 
       {/* Table */}
       {loading ? (
