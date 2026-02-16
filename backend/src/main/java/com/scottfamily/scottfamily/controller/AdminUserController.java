@@ -306,6 +306,31 @@ public class AdminUserController {
         return ResponseEntity.ok(Map.of("status", "banned"));
     }
 
+    // ─── Change role ────────────────────────────────────────
+
+    public record RoleRequest(String role) {}
+
+    @PostMapping("/{userId}/role")
+    public ResponseEntity<Map<String, String>> changeRole(
+            @PathVariable Long userId,
+            @RequestBody RoleRequest req
+    ) {
+        String newRole = req.role();
+        if (!"ROLE_ADMIN".equals(newRole) && !"ROLE_USER".equals(newRole)) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Invalid role. Must be ROLE_ADMIN or ROLE_USER."));
+        }
+
+        boolean exists = dsl.fetchExists(USERS, USERS.ID.eq(userId));
+        if (!exists) return ResponseEntity.notFound().build();
+
+        dsl.update(USERS)
+                .set(USERS.USER_ROLE, newRole)
+                .where(USERS.ID.eq(userId))
+                .execute();
+
+        return ResponseEntity.ok(Map.of("status", "role_updated", "role", newRole));
+    }
+
     // ─── Unban user ─────────────────────────────────────────
 
     @PostMapping("/{userId}/unban")

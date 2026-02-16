@@ -79,6 +79,9 @@ export default function AdminUsersPage() {
   const [banDuration, setBanDuration] = useState<BanDuration>('7d');
   const [banReason, setBanReason] = useState('');
 
+  // Role filter
+  const [roleFilter, setRoleFilter] = useState<'all' | 'admin' | 'user'>('all');
+
   // Profiles (people without user accounts)
   const [profiles, setProfiles] = useState<AdminPersonItem[]>([]);
   const [loadingProfiles, setLoadingProfiles] = useState(false);
@@ -117,15 +120,20 @@ export default function AdminUsersPage() {
 
   // Filter + paginate
   const filtered = useMemo(() => {
-    if (!search.trim()) return users;
-    const q = search.toLowerCase();
-    return users.filter(
-      (u) =>
-        u.username?.toLowerCase().includes(q) ||
-        u.email?.toLowerCase().includes(q) ||
-        u.displayName?.toLowerCase().includes(q)
-    );
-  }, [users, search]);
+    let result = users;
+    if (roleFilter === 'admin') result = result.filter((u) => u.userRole === 'ROLE_ADMIN');
+    else if (roleFilter === 'user') result = result.filter((u) => u.userRole !== 'ROLE_ADMIN');
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      result = result.filter(
+        (u) =>
+          u.username?.toLowerCase().includes(q) ||
+          u.email?.toLowerCase().includes(q) ||
+          u.displayName?.toLowerCase().includes(q)
+      );
+    }
+    return result;
+  }, [users, search, roleFilter]);
 
   const paged = useMemo(() => {
     const start = page * rowsPerPage;
@@ -189,6 +197,21 @@ export default function AdminUsersPage() {
       loadUsers();
     } catch (e: unknown) {
       setMsg({ type: 'error', text: (e as Error)?.message || 'Unban failed' });
+    }
+  }
+
+  async function handleToggleRole(user: AdminUserItem) {
+    const newRole = user.userRole === 'ROLE_ADMIN' ? 'ROLE_USER' : 'ROLE_ADMIN';
+    const label = newRole === 'ROLE_ADMIN' ? 'Admin' : 'User';
+    try {
+      await apiFetch(`/api/admin/users/${user.id}/role`, {
+        method: 'POST',
+        body: { role: newRole },
+      });
+      setMsg({ type: 'success', text: `Changed "${user.username}" role to ${label}.` });
+      loadUsers();
+    } catch (e: unknown) {
+      setMsg({ type: 'error', text: (e as Error)?.message || 'Role change failed' });
     }
   }
 
@@ -257,6 +280,18 @@ export default function AdminUsersPage() {
               onChange={(e) => { setSearch(e.target.value); setPage(0); }}
               sx={{ width: 300 }}
             />
+            <FormControl size="small" sx={{ ml: 2, minWidth: 130 }}>
+              <InputLabel>Role</InputLabel>
+              <Select
+                value={roleFilter}
+                label="Role"
+                onChange={(e) => { setRoleFilter(e.target.value as 'all' | 'admin' | 'user'); setPage(0); }}
+              >
+                <MenuItem value="all">All Roles</MenuItem>
+                <MenuItem value="admin">Admins Only</MenuItem>
+                <MenuItem value="user">Users Only</MenuItem>
+              </Select>
+            </FormControl>
             <Typography variant="body2" sx={{ ml: 2, color: 'var(--text-secondary)' }}>
               {filtered.length} user{filtered.length !== 1 ? 's' : ''}
             </Typography>
@@ -308,6 +343,14 @@ export default function AdminUsersPage() {
                         </TableCell>
                         <TableCell align="right">
                           <Stack direction="row" spacing={1} justifyContent="flex-end">
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              color={u.userRole === 'ROLE_ADMIN' ? 'inherit' : 'secondary'}
+                              onClick={() => handleToggleRole(u)}
+                            >
+                              {u.userRole === 'ROLE_ADMIN' ? 'Remove Admin' : 'Make Admin'}
+                            </Button>
                             {isBanned(u) ? (
                               <Button
                                 size="small"
