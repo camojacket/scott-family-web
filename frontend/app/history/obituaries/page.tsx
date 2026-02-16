@@ -507,7 +507,13 @@ export default function ObituariesPage() {
                 sx={{ textTransform: 'none' }}>
                 {formFile ? formFile.name : 'Choose File (PDF or Image)'}
                 <input type="file" hidden accept="application/pdf,image/*"
-                  onChange={(e) => setFormFile(e.target.files?.[0] ?? null)} />
+                  onChange={(e) => {
+                    const f = e.target.files?.[0] ?? null;
+                    setFormFile(f);
+                    if (f && !formTitle.trim()) {
+                      setFormTitle(f.name.replace(/\.[^.]+$/, ''));
+                    }
+                  }} />
               </Button>
               <PersonTagAutocomplete value={formPersonIds} onChange={setFormPersonIds} />
             </>

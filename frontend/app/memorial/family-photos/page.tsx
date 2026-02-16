@@ -298,9 +298,10 @@ export default function FamilyPhotosPage() {
     for (let i = 0; i < fileList.length; i++) {
       const file = fileList[i];
       if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) continue;
+      const nameWithoutExt = file.name.replace(/\.[^.]+$/, '');
       newFiles.push({
         file,
-        caption: '',
+        caption: nameWithoutExt,
         imageDate: '',
         preview: URL.createObjectURL(file),
         progress: 0,

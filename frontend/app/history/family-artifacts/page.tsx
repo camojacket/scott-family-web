@@ -319,7 +319,13 @@ export default function Page() {
               sx={{ textTransform: 'none' }}>
               {formFile ? formFile.name : 'Choose File (PDF or Image)'}
               <input type="file" hidden accept="application/pdf,image/*"
-                onChange={(e) => setFormFile(e.target.files?.[0] ?? null)} />
+                onChange={(e) => {
+                  const f = e.target.files?.[0] ?? null;
+                  setFormFile(f);
+                  if (f && !formName.trim()) {
+                    setFormName(f.name.replace(/\.[^.]+$/, ''));
+                  }
+                }} />
             </Button>
           )}
         </DialogContent>
