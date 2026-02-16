@@ -5,6 +5,10 @@ const nextConfig: NextConfig = {
   // Re-enable ESLint during builds to catch issues early.
   // If you have legacy lint issues, fix them rather than ignoring.
   // eslint: { ignoreDuringBuilds: true },
+  serverExternalPackages: [
+    'isomorphic-dompurify',
+    'jsdom',
+  ],
   transpilePackages: [
     '@mui/material',
     '@mui/system',
