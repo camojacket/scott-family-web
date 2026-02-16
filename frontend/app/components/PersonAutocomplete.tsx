@@ -103,6 +103,7 @@ export default function PersonAutocomplete({
     }
     run();
     return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debounced]);
 
   const selectedOption = useMemo(() => {

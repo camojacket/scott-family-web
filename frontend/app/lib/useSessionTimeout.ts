@@ -153,7 +153,7 @@ export function useSessionTimeout(): SessionTimeoutState {
     } catch {
       // Network error — don't logout, backend might just be temporarily unreachable
     }
-  }, [timeoutSeconds, scheduleWarning, performLogout]);
+  }, [timeoutSeconds, scheduleWarning, performLogout, isLoggedIn]);
 
   // Handle user activity
   const onActivity = useCallback(() => {

@@ -59,7 +59,6 @@ export default function NotificationBell() {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [loading, setLoading] = useState(false);
 
   // ─── Thread overlay ────────────────────────────────
   const [threadOpen, setThreadOpen] = useState(false);

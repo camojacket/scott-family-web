@@ -564,7 +564,7 @@ export default function SignupPage() {
                     <Stack spacing={0.25} sx={{ mt: 0.5 }}>
                       {motherId != null && (
                         <Typography variant="body2">
-                          <strong>Mother:</strong> {claimedProfile?.parents?.find((p: any) => p.relation?.includes('MOTHER'))?.displayName ?? `Person #${motherId}`}
+                          <strong>Mother:</strong> {claimedProfile?.parents?.find((p: PersonSummaryDto) => p.relation?.includes('MOTHER'))?.displayName ?? `Person #${motherId}`}
                           {motherRelation && (
                             <Typography component="span" variant="caption" sx={{ ml: 0.5, color: 'text.secondary' }}>
                               ({motherRelation.replace(/_/g, ' ').toLowerCase()})
@@ -574,7 +574,7 @@ export default function SignupPage() {
                       )}
                       {fatherId != null && (
                         <Typography variant="body2">
-                          <strong>Father:</strong> {claimedProfile?.parents?.find((p: any) => p.relation?.includes('FATHER'))?.displayName ?? `Person #${fatherId}`}
+                          <strong>Father:</strong> {claimedProfile?.parents?.find((p: PersonSummaryDto) => p.relation?.includes('FATHER'))?.displayName ?? `Person #${fatherId}`}
                           {fatherRelation && (
                             <Typography component="span" variant="caption" sx={{ ml: 0.5, color: 'text.secondary' }}>
                               ({fatherRelation.replace(/_/g, ' ').toLowerCase()})

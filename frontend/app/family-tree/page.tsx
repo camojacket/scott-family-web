@@ -556,7 +556,7 @@ function SvgTree({
     }
     return null;
   }, [nodes]);
-  const marcusNode = marcusInfo ? { x: marcusInfo.x, y: marcusInfo.y } : null;
+  const marcusNode = useMemo(() => marcusInfo ? { x: marcusInfo.x, y: marcusInfo.y } : null, [marcusInfo]);
 
   /* Center on Marcus & Caroline on initial load */
   const centerOnMarcus = useCallback((animate = true) => {

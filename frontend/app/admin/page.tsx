@@ -489,7 +489,7 @@ export default function AdminPage() {
 
   return (
     <Box sx={{ maxWidth: 1150, mx: 'auto', py: { xs: 3, sm: 5 } }}>
-      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'flex-start', sm: 'center' }} justifyContent="space-between" spacing={1} sx={{ mb: 2 }}>
         <Typography variant="h4" sx={{ fontWeight: 800, color: 'var(--foreground)' }}>
           Admin Dashboard
         </Typography>
@@ -505,7 +505,7 @@ export default function AdminPage() {
           </Button>
         </Stack>
       </Stack>
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 3 }}>
+      <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="scrollable" scrollButtons="auto" sx={{ mb: 3 }}>
         <Tab label="Pending signups" />
         <Tab label="Profile modifications" />
         <Tab label="People requests" />
