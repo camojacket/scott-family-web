@@ -33,7 +33,7 @@ import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import DeleteIcon from '@mui/icons-material/Delete';
 import Link from 'next/link';
 import { apiFetch } from '../../lib/api';
-import type { DuesStatusDto, DuesSummaryDto } from '../../lib/types';
+import type { DuesStatusDto, DuesSummaryDto, DuePeriodResponse } from '../../lib/types';
 
 const PAGE_SIZES = [10, 50, 100];
 
@@ -49,7 +49,18 @@ export default function AdminDuesPage() {
   const [rowsPerPage, setRowsPerPage] = useState(PAGE_SIZES[0]);
   const [sortField, setSortField] = useState<SortField>('name');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
-  const [year] = useState(new Date().getFullYear());
+  const [year, setYear] = useState(new Date().getFullYear());
+
+  // Load period to get the correct reunion year
+  useEffect(() => {
+    apiFetch<DuePeriodResponse>('/api/dues/period')
+      .then((data) => {
+        if (data.configured && data.period) {
+          setYear(data.period.reunionYear);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Manual record dialog
   const [recordOpen, setRecordOpen] = useState(false);

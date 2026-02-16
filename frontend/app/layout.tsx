@@ -7,6 +7,7 @@ import React from 'react';
 import Navigation from './components/Navigation';
 import { FamilyNameProvider } from './lib/FamilyNameContext';
 import { CartProvider } from './lib/CartContext';
+import TitleSync from './components/TitleSync';
 
 const geistSans = localFont({
   src: './fonts/GeistVF.woff',
@@ -33,7 +34,9 @@ function getFamilyLabel(host: string): string {
 
 export async function generateMetadata(): Promise<Metadata> {
   const hdrs = await headers();
-  const host = hdrs.get('host') ?? '';
+  // Azure Front Door / reverse proxies rewrite the `host` header to the origin,
+  // so prefer `x-forwarded-host` which preserves the real user-facing domain.
+  const host = hdrs.get('x-forwarded-host') ?? hdrs.get('host') ?? '';
   const label = getFamilyLabel(host);
 
   return {
@@ -53,6 +56,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <FamilyNameProvider>
+          <TitleSync />
           <CartProvider>
             <Navigation>{children}</Navigation>
           </CartProvider>

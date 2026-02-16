@@ -292,6 +292,19 @@ export interface DuesSummaryDto {
   totalCollectedCents: number;
 }
 
+export interface DuePeriodDto {
+  id: number;
+  reunionYear: number;
+  startDate: string;
+  endDate: string;
+}
+
+export interface DuePeriodResponse {
+  configured: boolean;
+  active?: boolean;
+  period?: DuePeriodDto;
+}
+
 // ─── Store ──────────────────────────────────────────────────
 
 export interface ProductVariantDto {

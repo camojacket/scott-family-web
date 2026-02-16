@@ -15,6 +15,7 @@ import {
   Divider,
   Checkbox,
   FormControlLabel,
+  Paper,
 } from '@mui/material';
 import PaymentIcon from '@mui/icons-material/Payment';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -22,9 +23,11 @@ import ReceiptIcon from '@mui/icons-material/Receipt';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import DeleteIcon from '@mui/icons-material/Delete';
 import GroupIcon from '@mui/icons-material/Group';
+import SaveIcon from '@mui/icons-material/Save';
+import SettingsIcon from '@mui/icons-material/Settings';
 import { apiFetch } from '../lib/api';
 import { useFamilyName } from '../lib/FamilyNameContext';
-import type { DuesPageDto, DuesBatchDto } from '../lib/types';
+import type { DuesPageDto, DuesBatchDto, DuePeriodResponse, DuePeriodDto } from '../lib/types';
 
 /** Dues amount in cents — $25. Display-only; server enforces actual amount. */
 const DUES_AMOUNT_CENTS = 2500;
@@ -42,6 +45,15 @@ export default function DuesPage() {
   const [verifying, setVerifying] = useState(false);
   const [snack, setSnack] = useState<{ msg: string; severity: 'success' | 'error' | 'info' } | null>(null);
   const pollingRef = useRef(false);
+
+  // ── Admin: due period config ──
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [periodData, setPeriodData] = useState<DuePeriodResponse | null>(null);
+  const [periodYear, setPeriodYear] = useState('');
+  const [periodStart, setPeriodStart] = useState('');
+  const [periodEnd, setPeriodEnd] = useState('');
+  const [savingPeriod, setSavingPeriod] = useState(false);
+  const [periodActive, setPeriodActive] = useState<boolean | undefined>(undefined);
 
   // ── Pay-on-behalf state ──
   const [payForSelf, setPayForSelf] = useState(false);
@@ -66,6 +78,56 @@ export default function DuesPage() {
   }, []);
 
   useEffect(() => { loadDuesPage(); }, [loadDuesPage]);
+
+  // Detect admin role
+  useEffect(() => {
+    try {
+      const p = JSON.parse(localStorage.getItem('profile') || '{}');
+      const role: string = p?.userRole || '';
+      setIsAdmin(role === 'ROLE_ADMIN' || role === 'ADMIN');
+    } catch { /* ignore */ }
+  }, []);
+
+  // Load due period config
+  const loadPeriod = useCallback(async () => {
+    try {
+      const data = await apiFetch<DuePeriodResponse>('/api/dues/period');
+      setPeriodData(data);
+      setPeriodActive(data.active);
+      if (data.configured && data.period) {
+        setPeriodYear(String(data.period.reunionYear));
+        setPeriodStart(data.period.startDate);
+        setPeriodEnd(data.period.endDate);
+      }
+    } catch { /* not critical */ }
+  }, []);
+
+  useEffect(() => { loadPeriod(); }, [loadPeriod]);
+
+  const handleSavePeriod = async () => {
+    if (!periodYear || !periodStart || !periodEnd) {
+      setSnack({ msg: 'All period fields are required', severity: 'error' });
+      return;
+    }
+    setSavingPeriod(true);
+    try {
+      const saved = await apiFetch<DuePeriodDto>('/api/dues/period', {
+        method: 'POST',
+        body: {
+          reunionYear: parseInt(periodYear, 10),
+          startDate: periodStart,
+          endDate: periodEnd,
+        },
+      });
+      setSnack({ msg: `Due period saved for ${saved.reunionYear} reunion`, severity: 'success' });
+      loadPeriod();
+      loadDuesPage(); // refresh dues status with new year
+    } catch (err: unknown) {
+      setSnack({ msg: (err as Error)?.message || 'Failed to save period', severity: 'error' });
+    } finally {
+      setSavingPeriod(false);
+    }
+  };
 
   // ── Handle return from Square checkout ──
   useEffect(() => {
@@ -192,7 +254,96 @@ export default function DuesPage() {
         <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mt: 0.5 }}>
           Support the annual {full} reunion &mdash; {reunionYear}
         </Typography>
+        {periodData?.configured && (
+          <Chip
+            label={periodActive ? `Dues open: ${periodStart} to ${periodEnd}` : `Dues period closed (was ${periodStart} to ${periodEnd})`}
+            size="small"
+            color={periodActive ? 'success' : 'default'}
+            variant="outlined"
+            sx={{ mt: 1 }}
+          />
+        )}
       </Box>
+
+      {/* ── Admin: Reunion Due Period Config ── */}
+      {isAdmin && (
+        <Paper
+          elevation={0}
+          sx={{
+            mb: 4,
+            p: 3,
+            border: '1px solid var(--color-primary-200)',
+            borderRadius: 'var(--radius-md)',
+            bgcolor: 'var(--color-primary-50)',
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+            <SettingsIcon sx={{ color: 'var(--color-primary-500)' }} />
+            <Typography variant="h6" sx={{ fontWeight: 700 }}>
+              Reunion Due Period
+            </Typography>
+            <Chip label="Admin" size="small" color="secondary" sx={{ ml: 'auto' }} />
+          </Box>
+
+          <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mb: 2.5 }}>
+            Set the date range during which dues payments apply to a specific reunion year.
+            After the end date, payments will count toward the next reunion year.
+          </Typography>
+
+          <Stack spacing={2}>
+            <TextField
+              label="Reunion Year"
+              type="number"
+              value={periodYear}
+              onChange={(e) => setPeriodYear(e.target.value)}
+              size="small"
+              fullWidth
+              slotProps={{ htmlInput: { min: 2000, max: 2100 } }}
+            />
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+              <TextField
+                label="Start Date"
+                type="date"
+                value={periodStart}
+                onChange={(e) => setPeriodStart(e.target.value)}
+                size="small"
+                fullWidth
+                slotProps={{ inputLabel: { shrink: true } }}
+              />
+              <TextField
+                label="End Date"
+                type="date"
+                value={periodEnd}
+                onChange={(e) => setPeriodEnd(e.target.value)}
+                size="small"
+                fullWidth
+                slotProps={{ inputLabel: { shrink: true } }}
+              />
+            </Stack>
+            <Button
+              variant="contained"
+              onClick={handleSavePeriod}
+              disabled={savingPeriod || !periodYear || !periodStart || !periodEnd}
+              startIcon={savingPeriod ? <CircularProgress size={16} /> : <SaveIcon />}
+              sx={{
+                alignSelf: 'flex-start',
+                bgcolor: 'var(--color-primary-500)',
+                '&:hover': { bgcolor: 'var(--color-primary-600)' },
+              }}
+            >
+              {savingPeriod ? 'Saving...' : 'Save Period'}
+            </Button>
+          </Stack>
+
+          {periodData?.configured && (
+            <Alert severity={periodActive ? 'success' : 'warning'} sx={{ mt: 2, borderRadius: 'var(--radius-md)' }}>
+              {periodActive
+                ? `Dues period is active. Payments are being accepted for the ${periodYear} reunion.`
+                : `Dues period has ended. The configured period was ${periodStart} to ${periodEnd}. Payments now count toward the current calendar year.`}
+            </Alert>
+          )}
+        </Paper>
+      )}
 
       {loading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>

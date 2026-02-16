@@ -2,6 +2,7 @@ package com.scottfamily.scottfamily.controller;
 
 import com.scottfamily.scottfamily.service.DuesService;
 import com.scottfamily.scottfamily.service.DuesService.*;
+import com.scottfamily.scottfamily.service.DuePeriodService;
 import org.jooq.DSLContext;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -30,10 +31,12 @@ import static com.yourproject.generated.scott_family_web.Tables.USERS;
 public class DuesController {
 
     private final DuesService duesService;
+    private final DuePeriodService periodService;
     private final DSLContext dsl;
 
-    public DuesController(DuesService duesService, DSLContext dsl) {
+    public DuesController(DuesService duesService, DuePeriodService periodService, DSLContext dsl) {
         this.duesService = duesService;
+        this.periodService = periodService;
         this.dsl = dsl;
     }
 
@@ -43,7 +46,7 @@ public class DuesController {
         Long userId = resolveUserId(auth.getName());
         if (userId == null) return ResponseEntity.status(403).body(Map.of("error", "Could not resolve user"));
 
-        int year = Year.now().getValue();
+        int year = periodService.resolveReunionYear();
         DuesPageDto page = duesService.getDuesPage(userId, year);
         return ResponseEntity.ok(page);
     }
@@ -60,7 +63,7 @@ public class DuesController {
         Long userId = resolveUserId(auth.getName());
         if (userId == null) return ResponseEntity.status(403).body(Map.of("error", "Could not resolve user"));
 
-        int year = Year.now().getValue();
+        int year = periodService.resolveReunionYear();
 
         try {
             var batch = duesService.createBatch(
@@ -144,7 +147,7 @@ public class DuesController {
                     .body(Map.of("error", "First name and last name are required"));
         }
 
-        int year = request.reunionYear != null ? request.reunionYear : Year.now().getValue();
+        int year = request.reunionYear != null ? request.reunionYear : periodService.resolveReunionYear();
 
         DuesPaymentDto result = duesService.recordManualPayment(
                 request.userId,
