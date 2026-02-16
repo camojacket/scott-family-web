@@ -520,7 +520,7 @@ export default function Navigation({ children }: { children: React.ReactNode }) 
       </Menu>
 
       {/* ── Announcement Banner ────────────────────────────────── */}
-      <AnnouncementBanner />
+      {isLoggedIn && <AnnouncementBanner />}
 
       {/* ── Page Content ───────────────────────────────────────── */}
       <Box
