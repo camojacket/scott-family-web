@@ -272,14 +272,16 @@ export default function SignupPage() {
         payload.fatherRelation = fatherRelation;
       }
 
-      const profile = await apiFetch('/api/auth/signup', {
+      const result = await apiFetch<{ approved: boolean; message: string }>('/api/auth/signup', {
         method: 'POST',
         body: payload,
       });
 
-      localStorage.setItem('profile', JSON.stringify(profile));
-      // Redirect to login with pending-approval message
-      window.location.href = '/login?reason=pending';
+      // Redirect to login with the appropriate message
+      // Do NOT save profile to localStorage — no session exists yet
+      window.location.href = result.approved
+        ? '/login?reason=signup-approved'
+        : '/login?reason=signup-pending';
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Signup failed';
       setMsg({ type: 'error', text: message });

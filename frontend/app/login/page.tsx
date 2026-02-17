@@ -18,13 +18,17 @@ export default function LoginPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [msg, setMsg] = useState<{ type: 'success'|'error'|'info'; text: string }|null>(
-    reason === 'pending'
-      ? { type: 'success', text: 'Your signup has been submitted! An admin will review your account. You\u2019ll receive an email once approved.' }
-      : reason === 'timeout'
-        ? { type: 'info', text: 'You were logged out due to inactivity.' }
-        : reason === 'expired'
-          ? { type: 'info', text: 'Your session has expired. Please log in again.' }
-          : null
+    reason === 'signup-approved'
+      ? { type: 'success', text: 'You\u2019ve successfully signed up! You can now log in.' }
+      : reason === 'signup-pending'
+        ? { type: 'success', text: 'Your signup request has been submitted! You\u2019ll receive an email once your account is approved.' }
+        : reason === 'pending'
+          ? { type: 'success', text: 'Your signup request has been submitted! You\u2019ll receive an email once your account is approved.' }
+          : reason === 'timeout'
+            ? { type: 'info', text: 'You were logged out due to inactivity.' }
+            : reason === 'expired'
+              ? { type: 'info', text: 'Your session has expired. Please log in again.' }
+              : null
   );
   const [loading, setLoading] = useState(false);
   const [isReturning, setIsReturning] = useState(false);

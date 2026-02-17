@@ -280,6 +280,12 @@ public class DTOs {
             Long claimPersonId
     ) {}
 
+    /** Returned by the signup endpoint so the frontend knows whether the account was auto-approved. */
+    public record SignupResponse(
+            boolean approved,
+            String message
+    ) {}
+
 
     public record PendingUserDto(
             Long id,

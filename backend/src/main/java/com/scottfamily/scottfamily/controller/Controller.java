@@ -119,7 +119,7 @@ public class Controller {
     }
 
     @PostMapping("/auth/signup")
-    public DTOs.ProfileDto signup(@Valid @RequestBody DTOs.SignupRequest req) {
+    public DTOs.SignupResponse signup(@Valid @RequestBody DTOs.SignupRequest req) {
         return authService.signup(req);
     }
 

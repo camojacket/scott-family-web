@@ -97,7 +97,7 @@ public class AuthService {
         return toProfile(user);
     }
 
-    public DTOs.ProfileDto signup(DTOs.SignupRequest req) {
+    public DTOs.SignupResponse signup(DTOs.SignupRequest req) {
         return dsl.transactionResult(tx -> {
             final var d = DSL.using(tx);
 
@@ -222,8 +222,12 @@ public class AuthService {
                         .execute();
             }
 
-            // 5) Return unified profile
-            return toProfile(u);
+            // 5) Return signup result with approval status
+            boolean approved = u.getApprovedAt() != null;
+            String message = approved
+                    ? "You've successfully signed up! You can now log in."
+                    : "Your signup request has been submitted. You'll receive an email once your account is approved.";
+            return new DTOs.SignupResponse(approved, message);
         });
     }
 
