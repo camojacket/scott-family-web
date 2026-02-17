@@ -14,8 +14,10 @@ export default async function StorePage() {
 
   try {
     products = await serverFetch<ProductDto[]>('/api/store/products');
-  } catch {
-    error = 'Failed to load products';
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    console.error('[StorePage] serverFetch failed:', detail);
+    error = `Failed to load products: ${detail}`;
   }
 
   return <StorePageLayout products={products} error={error} />;
