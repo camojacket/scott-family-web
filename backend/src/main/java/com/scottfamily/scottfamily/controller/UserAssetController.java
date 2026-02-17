@@ -1,8 +1,9 @@
 package com.scottfamily.scottfamily.controller;
 
+import com.azure.storage.blob.BlobContainerClient;
+import com.scottfamily.scottfamily.properties.CdnProperties;
 import com.scottfamily.scottfamily.service.CdnUploadService;
 import com.scottfamily.scottfamily.service.CdnUploadService.AssetKind;
-import com.yourproject.generated.scott_family_web.Tables;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
 import org.springframework.http.MediaType;
@@ -24,14 +25,19 @@ public class UserAssetController {
 
     private final CdnUploadService cdnUploadService;
     private final DSLContext dsl;
+    private final BlobContainerClient blobContainer;
+    private final CdnProperties cdnProps;
 
     // Inline field refs for PEOPLE columns
     private static final org.jooq.Field<String> P_PROFILE_PICTURE_URL = DSL.field(DSL.name("profile_picture_url"), String.class);
     private static final org.jooq.Field<String> P_BANNER_IMAGE_URL   = DSL.field(DSL.name("banner_image_url"),   String.class);
 
-    public UserAssetController(CdnUploadService cdnUploadService, DSLContext dsl) {
+    public UserAssetController(CdnUploadService cdnUploadService, DSLContext dsl,
+                               BlobContainerClient blobContainer, CdnProperties cdnProps) {
         this.cdnUploadService = cdnUploadService;
         this.dsl = dsl;
+        this.blobContainer = blobContainer;
+        this.cdnProps = cdnProps;
     }
 
     // Anonymous upload for signup: returns CDN URL to include in SignupRequest
@@ -67,14 +73,25 @@ public class UserAssetController {
 
         if (personId != null) {
             switch (kind) {
-                case PROFILE -> dsl.update(PEOPLE)
+                case PROFILE -> {
+                    // Fetch old URL before overwriting, then delete old blob
+                    String oldUrl = dsl.select(P_PROFILE_PICTURE_URL).from(PEOPLE)
+                            .where(PEOPLE.ID.eq(personId)).fetchOneInto(String.class);
+                    dsl.update(PEOPLE)
                         .set(P_PROFILE_PICTURE_URL, result.getCdnUrl())
                         .where(PEOPLE.ID.eq(personId))
                         .execute();
-                case BANNER -> dsl.update(PEOPLE)
+                    deleteOldBlob(oldUrl, result.getCdnUrl());
+                }
+                case BANNER -> {
+                    String oldUrl = dsl.select(P_BANNER_IMAGE_URL).from(PEOPLE)
+                            .where(PEOPLE.ID.eq(personId)).fetchOneInto(String.class);
+                    dsl.update(PEOPLE)
                         .set(P_BANNER_IMAGE_URL, result.getCdnUrl())
                         .where(PEOPLE.ID.eq(personId))
                         .execute();
+                    deleteOldBlob(oldUrl, result.getCdnUrl());
+                }
                 default -> { /* POST_IMAGE/STATIC not handled here */ }
             }
         }
@@ -85,5 +102,34 @@ public class UserAssetController {
                 "contentType", result.getContentType(),
                 "bytes", result.getBytes()
         ));
+    }
+
+    /** Delete old blob from Azure Storage when a new image replaces it. */
+    private void deleteOldBlob(String oldUrl, String newUrl) {
+        if (oldUrl == null || oldUrl.isBlank() || oldUrl.equals(newUrl)) return;
+        try {
+            String blobKey = extractBlobKey(oldUrl);
+            if (blobKey != null && !blobKey.isBlank()) {
+                blobContainer.getBlobClient(blobKey).deleteIfExists();
+            }
+        } catch (Exception ignored) { /* best-effort cleanup */ }
+    }
+
+    private String extractBlobKey(String cdnUrl) {
+        String base = cdnProps.getBaseUrl();
+        if (base != null && !base.isBlank()) {
+            if (!base.endsWith("/")) base += "/";
+            if (cdnUrl.startsWith(base)) {
+                return cdnUrl.substring(base.length());
+            }
+        }
+        try {
+            java.net.URI uri = java.net.URI.create(cdnUrl);
+            String path = uri.getPath();
+            if (path != null && path.startsWith("/")) path = path.substring(1);
+            return path;
+        } catch (Exception e) {
+            return null;
+        }
     }
 }

@@ -24,6 +24,8 @@ import CloseIcon from '@mui/icons-material/Close';
 import VolumeUpIcon from '@mui/icons-material/VolumeUp';
 import VolumeOffIcon from '@mui/icons-material/VolumeOff';
 import TimerIcon from '@mui/icons-material/Timer';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import { apiFetch } from '../lib/api';
 import { BlockBlobClient } from '@azure/storage-blob';
 
@@ -213,6 +215,29 @@ export default function HeroSlideshow({ isAdmin, editMode, family }: HeroSlidesh
       setSnack({ msg: 'Duration saved', severity: 'success' });
     } catch {
       setSnack({ msg: 'Failed to save duration', severity: 'error' });
+    }
+  }
+
+  async function handleMove(fromIndex: number, direction: 'left' | 'right') {
+    const toIndex = direction === 'left' ? fromIndex - 1 : fromIndex + 1;
+    if (toIndex < 0 || toIndex >= slides.length) return;
+
+    // Build new order array: swap fromIndex and toIndex
+    const newOrder = slides.map((_, i) => i);
+    [newOrder[fromIndex], newOrder[toIndex]] = [newOrder[toIndex], newOrder[fromIndex]];
+
+    try {
+      const data = await apiFetch<SlideMedia[]>('/api/slideshow/reorder', {
+        method: 'PUT',
+        body: newOrder,
+      });
+      setSlides(data);
+      // Keep focus on the moved slide
+      if (currentIndex === fromIndex) setCurrentIndex(toIndex);
+      else if (currentIndex === toIndex) setCurrentIndex(fromIndex);
+      setSnack({ msg: 'Order updated', severity: 'success' });
+    } catch {
+      setSnack({ msg: 'Failed to reorder', severity: 'error' });
     }
   }
 
@@ -606,6 +631,18 @@ export default function HeroSlideshow({ isAdmin, editMode, family }: HeroSlidesh
                   onClick={(e) => e.stopPropagation()}
                   sx={{ bgcolor: '#f5f5f5', borderTop: '1px solid #eee', py: 0.25 }}
                 >
+                  <Tooltip title="Move left">
+                    <span>
+                      <IconButton
+                        size="small"
+                        onClick={() => handleMove(i, 'left')}
+                        disabled={i === 0}
+                        sx={{ width: 28, height: 28 }}
+                      >
+                        <ArrowBackIcon sx={{ fontSize: 14 }} />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
                   <Tooltip title="Edit caption">
                     <IconButton
                       size="small"
@@ -638,6 +675,18 @@ export default function HeroSlideshow({ isAdmin, editMode, family }: HeroSlidesh
                         }}
                       >
                         <DeleteOutlineIcon sx={{ fontSize: 16 }} />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                  <Tooltip title="Move right">
+                    <span>
+                      <IconButton
+                        size="small"
+                        onClick={() => handleMove(i, 'right')}
+                        disabled={i === slides.length - 1}
+                        sx={{ width: 28, height: 28 }}
+                      >
+                        <ArrowForwardIcon sx={{ fontSize: 14 }} />
                       </IconButton>
                     </span>
                   </Tooltip>

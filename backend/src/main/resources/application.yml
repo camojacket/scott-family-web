@@ -9,6 +9,8 @@ server:
       cookie:
         same-site: lax    # same origin via Front Door — lax is sufficient
         secure: true       # Front Door uses HTTPS
+        max-age: 86400     # 24h — keeps cookie alive across mobile browser restarts / app switches;
+                           #        actual session lifetime is enforced server-side by timeout above
 
 spring:
   servlet:

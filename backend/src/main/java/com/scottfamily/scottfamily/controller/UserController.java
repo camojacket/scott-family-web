@@ -1,7 +1,9 @@
 // src/main/java/com/scottfamily/scottfamily/controller/UserController.java
 package com.scottfamily.scottfamily.controller;
 
+import com.azure.storage.blob.BlobContainerClient;
 import com.scottfamily.scottfamily.dto.DTOs;
+import com.scottfamily.scottfamily.properties.CdnProperties;
 import com.yourproject.generated.scott_family_web.tables.records.UsersRecord;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
@@ -25,6 +27,8 @@ import static org.jooq.impl.DSL.selectOne;
 public class UserController {
 
     private final DSLContext dsl;
+    private final BlobContainerClient blobContainer;
+    private final CdnProperties cdnProps;
 
     // Inline field refs for PEOPLE columns not yet in generated jOOQ classes
     private static final org.jooq.Field<String> P_MIDDLE_NAME        = DSL.field(DSL.name("middle_name"),        String.class);
@@ -99,6 +103,12 @@ public class UserController {
                 me.setPersonId(personId);
                 me.update();
             } else {
+                // ---- Fetch old URLs to clean up blobs if changed ----
+                Record oldRec = d.select(P_PROFILE_PICTURE_URL, P_BANNER_IMAGE_URL)
+                        .from(PEOPLE).where(PEOPLE.ID.eq(personId)).fetchOne();
+                String oldPfp = oldRec != null ? oldRec.get(P_PROFILE_PICTURE_URL) : null;
+                String oldBanner = oldRec != null ? oldRec.get(P_BANNER_IMAGE_URL) : null;
+
                 // ---- Write ALL profile data to PEOPLE ----
                 var pUpd = d.update(PEOPLE).set(PEOPLE.ID, PEOPLE.ID); // no-op seed
                 if (notBlank(firstName))       pUpd = pUpd.set(PEOPLE.FIRST_NAME, firstName);
@@ -112,6 +122,16 @@ public class UserController {
                 if (location != null)          pUpd = pUpd.set(P_LOCATION,        location);
                 if (dateOfBirth != null)        pUpd = pUpd.set(PEOPLE.DATE_OF_BIRTH, dateOfBirth);
                 pUpd.where(PEOPLE.ID.eq(personId)).execute();
+
+                // ---- Delete old blobs if URL changed ----
+                if (profilePictureUrl != null && oldPfp != null && !oldPfp.isBlank()
+                        && !profilePictureUrl.equals(oldPfp)) {
+                    deleteOldBlob(oldPfp);
+                }
+                if (bannerImageUrl != null && oldBanner != null && !oldBanner.isBlank()
+                        && !bannerImageUrl.equals(oldBanner)) {
+                    deleteOldBlob(oldBanner);
+                }
             }
 
             // ---- Build response: read profile data from PEOPLE ----
@@ -180,5 +200,34 @@ public class UserController {
 
     private static boolean notBlank(String s) {
         return s != null && !s.isBlank();
+    }
+
+    /** Delete old blob from Azure Storage by extracting the blob key from a CDN URL. */
+    private void deleteOldBlob(String cdnUrl) {
+        if (cdnUrl == null || cdnUrl.isBlank()) return;
+        try {
+            String blobKey = extractBlobKey(cdnUrl);
+            if (blobKey != null && !blobKey.isBlank()) {
+                blobContainer.getBlobClient(blobKey).deleteIfExists();
+            }
+        } catch (Exception ignored) { /* best-effort cleanup */ }
+    }
+
+    private String extractBlobKey(String cdnUrl) {
+        String base = cdnProps.getBaseUrl();
+        if (base != null && !base.isBlank()) {
+            if (!base.endsWith("/")) base += "/";
+            if (cdnUrl.startsWith(base)) {
+                return cdnUrl.substring(base.length());
+            }
+        }
+        try {
+            java.net.URI uri = java.net.URI.create(cdnUrl);
+            String path = uri.getPath();
+            if (path != null && path.startsWith("/")) path = path.substring(1);
+            return path;
+        } catch (Exception e) {
+            return null;
+        }
     }
 }

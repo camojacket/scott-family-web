@@ -48,6 +48,10 @@ export function useSessionTimeout(): SessionTimeoutState {
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastPingRef = useRef<number>(0);
   const lastActivityRef = useRef<number>(Date.now());
+  /** Wall-clock time when the warning should fire (survives JS timer throttling) */
+  const warningDeadlineRef = useRef<number>(Infinity);
+  /** Wall-clock time when auto-logout should fire */
+  const logoutDeadlineRef = useRef<number>(Infinity);
 
   // Check if user is logged in
   const isLoggedIn = useCallback(() => {
@@ -110,8 +114,13 @@ export function useSessionTimeout(): SessionTimeoutState {
     clearTimers();
     setShowWarning(false);
 
+    const now = Date.now();
     const warningAt = Math.max(totalSeconds - WARNING_LEAD_SECONDS, 0);
     const leadTime = Math.min(WARNING_LEAD_SECONDS, totalSeconds);
+
+    // Record wall-clock deadlines so visibility handler can correct after mobile sleep
+    warningDeadlineRef.current = now + warningAt * 1000;
+    logoutDeadlineRef.current = now + totalSeconds * 1000;
 
     warningTimerRef.current = setTimeout(() => {
       if (!isLoggedIn()) return;
@@ -231,6 +240,62 @@ export function useSessionTimeout(): SessionTimeoutState {
       ACTIVITY_EVENTS.forEach((evt) => window.removeEventListener(evt, onActivity));
     };
   }, [isLoggedIn, onActivity]);
+
+  // Handle page visibility changes (mobile app-switch / tab switch).
+  // JS timers are paused while the page is hidden, so rely on wall-clock deadlines instead.
+  useEffect(() => {
+    if (!isLoggedIn() || !timeoutSeconds) return;
+
+    const onVisibility = async () => {
+      if (document.hidden) return; // only act when the page becomes visible again
+
+      const now = Date.now();
+
+      // If the logout deadline has passed while we were away, verify with the server
+      // before kicking the user out (the server may have received activity from another tab).
+      if (now >= logoutDeadlineRef.current) {
+        try {
+          lastPingRef.current = now;
+          const resp = await fetch(`${API_BASE}/api/auth/session-ping`, {
+            method: 'POST',
+            credentials: 'include',
+          });
+          if (!resp.ok || !(await resp.json()).alive) {
+            performLogout();
+            return;
+          }
+        } catch {
+          // Network error — don't logout
+        }
+        // Server session is still alive — reset everything
+        scheduleWarning(timeoutSeconds);
+        return;
+      }
+
+      // If the warning deadline has passed, show warning with corrected remaining time
+      if (now >= warningDeadlineRef.current) {
+        const remaining = Math.max(0, Math.round((logoutDeadlineRef.current - now) / 1000));
+        if (remaining <= 0) {
+          // Edge case: exactly at the boundary — ping to verify
+          pingServer();
+          return;
+        }
+        clearTimers();
+        startCountdown(remaining);
+        return;
+      }
+
+      // Otherwise we came back well within the timeout — just ping to keep alive
+      // and reschedule timers with corrected wall-clock time
+      pingServer();
+      const remaining = Math.max(0, Math.round((logoutDeadlineRef.current - now) / 1000));
+      clearTimers();
+      scheduleWarning(remaining);
+    };
+
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [isLoggedIn, timeoutSeconds, scheduleWarning, clearTimers, startCountdown, performLogout, pingServer]);
 
   // Listen for profile-updated events (login/logout in other tabs)
   useEffect(() => {

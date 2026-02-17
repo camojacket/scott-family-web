@@ -168,6 +168,16 @@ public class SlideshowController {
                     "At least " + MIN_IMAGES + " slideshow image is required."));
         }
 
+        // Delete the blob from Azure Storage (best-effort)
+        Map<String, Object> removed = images.get(index);
+        String url = removed.get("url") != null ? removed.get("url").toString() : null;
+        if (url != null) {
+            String blobKey = extractBlobKey(url);
+            if (blobKey != null) {
+                try { container.getBlobClient(blobKey).deleteIfExists(); } catch (Exception ignored) {}
+            }
+        }
+
         images.remove(index);
         for (int i = 0; i < images.size(); i++) {
             images.get(i).put("order", i);
@@ -280,5 +290,29 @@ public class SlideshowController {
         }
         if (base.endsWith("/")) base = base.substring(0, base.length() - 1);
         return base + "/" + key;
+    }
+
+    /**
+     * Extract the blob key from a CDN URL.
+     * e.g. "https://cdn.example.com/slideshow/abc.jpg" → "slideshow/abc.jpg"
+     */
+    private String extractBlobKey(String cdnUrl) {
+        if (cdnUrl == null || cdnUrl.isBlank()) return null;
+        String base = cdnProps.getBaseUrl();
+        if (base != null && !base.isBlank()) {
+            if (!base.endsWith("/")) base += "/";
+            if (cdnUrl.startsWith(base)) {
+                return cdnUrl.substring(base.length());
+            }
+        }
+        // Fallback: take the path after the last domain segment
+        try {
+            java.net.URI uri = java.net.URI.create(cdnUrl);
+            String path = uri.getPath();
+            if (path != null && path.startsWith("/")) path = path.substring(1);
+            return path;
+        } catch (Exception e) {
+            return null;
+        }
     }
 }
