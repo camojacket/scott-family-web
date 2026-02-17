@@ -485,7 +485,7 @@ export default function FamilyPhotosClient({ initialImages }: { initialImages?: 
       setTagSearchLoading(true);
       try {
         const results = await apiFetch<PersonSearchResult[]>(
-          `/api/people/search?q=${encodeURIComponent(tagSearch.trim())}&limit=10`
+          `/api/people/search?q=${encodeURIComponent(tagSearch.trim())}&limit=10&excludeArchived=false`
         );
         // Filter out already-tagged people
         const taggedIds = new Set(editTags.map((t) => t.personId));

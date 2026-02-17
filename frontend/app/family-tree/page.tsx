@@ -918,7 +918,7 @@ function AddPersonDialog({ open, onClose, onCreated }: {
     if (fatherQuery.length < 2) { setFatherOptions([]); return; }
     const t = setTimeout(async () => {
       try {
-        const results = await apiFetch<ParentOption[]>(`/api/people/search?q=${encodeURIComponent(fatherQuery)}&limit=10`);
+        const results = await apiFetch<ParentOption[]>(`/api/people/search?q=${encodeURIComponent(fatherQuery)}&limit=10&excludeArchived=false`);
         setFatherOptions(results);
       } catch { /* ignore */ }
     }, 300);
@@ -929,7 +929,7 @@ function AddPersonDialog({ open, onClose, onCreated }: {
     if (motherQuery.length < 2) { setMotherOptions([]); return; }
     const t = setTimeout(async () => {
       try {
-        const results = await apiFetch<ParentOption[]>(`/api/people/search?q=${encodeURIComponent(motherQuery)}&limit=10`);
+        const results = await apiFetch<ParentOption[]>(`/api/people/search?q=${encodeURIComponent(motherQuery)}&limit=10&excludeArchived=false`);
         setMotherOptions(results);
       } catch { /* ignore */ }
     }, 300);

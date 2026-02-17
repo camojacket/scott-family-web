@@ -52,8 +52,12 @@ public class GalleryController {
     @GetMapping("/images")
     public ResponseEntity<List<GalleryImageDto>> listImages(
             @RequestParam(defaultValue = "0") int offset,
-            @RequestParam(defaultValue = "200") int limit
+            @RequestParam(defaultValue = "200") int limit,
+            @RequestParam(required = false) Long personId
     ) {
+        if (personId != null) {
+            return ResponseEntity.ok(galleryService.getByPersonId(personId));
+        }
         return ResponseEntity.ok(galleryService.listAll(offset, Math.min(limit, 200)));
     }
 

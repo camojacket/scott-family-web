@@ -4,9 +4,9 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { apiFetch, uploadAnonymous } from '../../lib/api';
 import PersonAutocomplete from '../../components/PersonAutocomplete';
-import ArticleIcon from '@mui/icons-material/Article';
 import CdnAvatar from '../../components/CdnAvatar';
 import Image from '../../components/CdnImage';
+import TaggedMediaGrid from '../../components/TaggedMediaGrid';
 import {
   Box,
   Button,
@@ -91,7 +91,7 @@ export default function ProfilePage() {
   const [editFatherRelation, setEditFatherRelation] = useState('BIOLOGICAL_FATHER');
   const [profileFile, setProfileFile] = useState<File | undefined>(undefined);
   const [bannerFile, setBannerFile] = useState<File | undefined>(undefined);
-  const [obituaries, setObituaries] = useState<{ id: number; title: string; fileUrl: string; fileType: string }[]>([]);
+
 
   const loadProfile = useCallback(async () => {
     if (!personId) return;
@@ -133,16 +133,7 @@ export default function ProfilePage() {
     loadProfile();
   }, [loadProfile]);
 
-  // Fetch obituaries tagged to this person
-  useEffect(() => {
-    if (!personId) return;
-    apiFetch<{ id: number; title: string; fileUrl: string; fileType: string }[]>(
-      `/api/obituaries?personId=${personId}`,
-      { method: 'GET' }
-    )
-      .then(setObituaries)
-      .catch(() => setObituaries([]));
-  }, [personId]);
+
 
   const handleSave = async () => {
     if (!profile) return;
@@ -292,30 +283,7 @@ export default function ProfilePage() {
             </Typography>
           )}
 
-          {/* Obituary links for deceased profiles */}
-          {obituaries.length > 0 && (
-            <Stack direction="row" spacing={1} flexWrap="wrap" justifyContent="center" sx={{ mt: 2, gap: 1 }}>
-              {obituaries.map(ob => (
-                <Chip
-                  key={ob.id}
-                  icon={<ArticleIcon />}
-                  label={ob.title}
-                  component="a"
-                  href={ob.fileUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  clickable
-                  size="small"
-                  sx={{
-                    bgcolor: 'var(--color-primary-50)',
-                    color: 'var(--color-primary-700)',
-                    fontWeight: 500,
-                    '& .MuiChip-icon': { color: 'var(--color-primary-500)' },
-                  }}
-                />
-              ))}
-            </Stack>
-          )}
+
 
           {isPeopleOnly && (
             <Chip
@@ -435,6 +403,7 @@ export default function ProfilePage() {
                   value={editMotherId}
                   onChange={setEditMotherId}
                   onAddPerson={handleAddPerson}
+                  excludePersonIds={profile?.personId ? [profile.personId] : undefined}
                 />
               </Box>
               {editMotherId && (
@@ -457,6 +426,7 @@ export default function ProfilePage() {
                   value={editFatherId}
                   onChange={setEditFatherId}
                   onAddPerson={handleAddPerson}
+                  excludePersonIds={profile?.personId ? [profile.personId] : undefined}
                 />
               </Box>
               {editFatherId && (
@@ -628,6 +598,9 @@ export default function ProfilePage() {
       </Box>
 
 
+
+      {/* Tagged Media */}
+      <TaggedMediaGrid personId={personId} />
 
       {/* Snackbar feedback */}
       <Snackbar

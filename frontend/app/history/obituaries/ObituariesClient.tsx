@@ -21,7 +21,59 @@ import LabelIcon from '@mui/icons-material/Label';
 import { apiFetch } from '../../lib/api';
 import type { ObituaryDto } from '../../lib/types';
 
+
 type PersonHit = { personId: number; displayName: string };
+
+function PersonTagAutocomplete({
+  value,
+  onChange,
+  options,
+  inputValue,
+  onInputChange,
+  loading,
+}: {
+  value: PersonHit[];
+  onChange: (v: PersonHit[]) => void;
+  options: PersonHit[];
+  inputValue: string;
+  onInputChange: (v: string) => void;
+  loading: boolean;
+}) {
+  return (
+    <Autocomplete
+      multiple
+      options={options}
+      getOptionLabel={(o) => o.displayName}
+      isOptionEqualToValue={(a, b) => a.personId === b.personId}
+      value={value}
+      onChange={(_, v) => onChange(v)}
+      inputValue={inputValue}
+      onInputChange={(_, v) => onInputChange(v)}
+      loading={loading}
+      filterSelectedOptions
+      renderInput={(params) => (
+        <TextField
+          {...params}
+          label="Tag People"
+          placeholder="Search for family members..."
+          size="small"
+        />
+      )}
+      renderTags={(tags, getTagProps) =>
+        tags.map((tag, i) => (
+          <Chip
+            {...getTagProps({ index: i })}
+            key={tag.personId}
+            label={tag.displayName}
+            size="small"
+            icon={<PersonIcon />}
+            sx={{ bgcolor: 'var(--color-primary-50)', color: 'var(--color-primary-700)' }}
+          />
+        ))
+      }
+    />
+  );
+}
 
 export default function ObituariesPage({ initialData }: { initialData?: ObituaryDto[] } = {}) {
   const [obituaries, setObituaries] = useState<ObituaryDto[]>(initialData ?? []);
@@ -92,7 +144,7 @@ export default function ObituariesPage({ initialData }: { initialData?: Obituary
     const timer = setTimeout(async () => {
       try {
         setPersonLoading(true);
-        const data = await apiFetch<PersonHit[]>(`/api/people/search?q=${encodeURIComponent(personInput)}&limit=15`);
+        const data = await apiFetch<PersonHit[]>(`/api/people/search?q=${encodeURIComponent(personInput)}&limit=15&excludeArchived=false`);
         if (!cancelled) setPersonOptions(data || []);
       } catch {
         if (!cancelled) setPersonOptions([]);
@@ -217,50 +269,6 @@ export default function ObituariesPage({ initialData }: { initialData?: Obituary
     }
   }
 
-  // Shared person autocomplete component
-  function PersonTagAutocomplete({
-    value,
-    onChange,
-  }: {
-    value: PersonHit[];
-    onChange: (v: PersonHit[]) => void;
-  }) {
-    return (
-      <Autocomplete
-        multiple
-        options={personOptions}
-        getOptionLabel={(o) => o.displayName}
-        isOptionEqualToValue={(a, b) => a.personId === b.personId}
-        value={value}
-        onChange={(_, v) => onChange(v)}
-        inputValue={personInput}
-        onInputChange={(_, v) => setPersonInput(v)}
-        loading={personLoading}
-        filterSelectedOptions
-        renderInput={(params) => (
-          <TextField
-            {...params}
-            label="Tag People"
-            placeholder="Search for family members..."
-            size="small"
-          />
-        )}
-        renderTags={(tags, getTagProps) =>
-          tags.map((tag, i) => (
-            <Chip
-              {...getTagProps({ index: i })}
-              key={tag.personId}
-              label={tag.displayName}
-              size="small"
-              icon={<PersonIcon />}
-              sx={{ bgcolor: 'var(--color-primary-50)', color: 'var(--color-primary-700)' }}
-            />
-          ))
-        }
-      />
-    );
-  }
-
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}>
@@ -356,10 +364,15 @@ export default function ObituariesPage({ initialData }: { initialData?: Obituary
                     />
                   </Box>
                 ) : (
-                  <Box sx={{
-                    height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    bgcolor: 'var(--color-gray-50)',
-                  }}>
+                  <Box
+                    sx={{
+                      height: 200,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      bgcolor: 'var(--color-gray-50)',
+                    }}
+                  >
                     <PictureAsPdfIcon sx={{ fontSize: 64, color: 'var(--color-gray-300)' }} />
                   </Box>
                 )}
@@ -387,6 +400,9 @@ export default function ObituariesPage({ initialData }: { initialData?: Obituary
                         label={p.displayName}
                         size="small"
                         variant="outlined"
+                        component="a"
+                        href={`/profile/${p.personId}`}
+                        clickable
                         sx={{
                           fontSize: '0.72rem', height: 22,
                           borderColor: 'var(--color-primary-200)',
@@ -475,7 +491,7 @@ export default function ObituariesPage({ initialData }: { initialData?: Obituary
                     Tagged:
                   </Typography>
                   {previewObit.taggedPeople.map((p) => (
-                    <Chip key={p.personId} label={p.displayName} size="small" variant="outlined" />
+                    <Chip key={p.personId} label={p.displayName} size="small" variant="outlined" component="a" href={`/profile/${p.personId}`} clickable />
                   ))}
                 </Stack>
               )}
@@ -522,7 +538,14 @@ export default function ObituariesPage({ initialData }: { initialData?: Obituary
                     }
                   }} />
               </Button>
-              <PersonTagAutocomplete value={formPersonIds} onChange={setFormPersonIds} />
+              <PersonTagAutocomplete
+                value={formPersonIds}
+                onChange={setFormPersonIds}
+                options={personOptions}
+                inputValue={personInput}
+                onInputChange={setPersonInput}
+                loading={personLoading}
+              />
             </>
           )}
         </DialogContent>
@@ -538,7 +561,14 @@ export default function ObituariesPage({ initialData }: { initialData?: Obituary
       <Dialog open={tagDialogId !== null} onClose={() => setTagDialogId(null)} maxWidth="sm" fullWidth>
         <DialogTitle>Edit Tagged People</DialogTitle>
         <DialogContent sx={{ pt: '16px !important' }}>
-          <PersonTagAutocomplete value={tagPersonIds} onChange={setTagPersonIds} />
+          <PersonTagAutocomplete
+            value={tagPersonIds}
+            onChange={setTagPersonIds}
+            options={personOptions}
+            inputValue={personInput}
+            onInputChange={setPersonInput}
+            loading={personLoading}
+          />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setTagDialogId(null)} disabled={tagSubmitting}>Cancel</Button>

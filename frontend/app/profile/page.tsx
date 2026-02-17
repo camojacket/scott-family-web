@@ -25,6 +25,7 @@ import { apiFetch, uploadForUser } from '../lib/api';
 import PersonAutocomplete from '../components/PersonAutocomplete';
 import CdnAvatar from '../components/CdnAvatar';
 import Image from '../components/CdnImage';
+import TaggedMediaGrid from '../components/TaggedMediaGrid';
 
 type Rel = { id: number; displayName: string; profilePictureUrl?: string | null };
 type PersonRelDto = { personId: number; displayName: string; relation: string };
@@ -543,6 +544,9 @@ export default function MeProfilePage() {
       {/* Alert messages */}
       {msg && <Alert severity={msg.type === 'info' ? 'info' : msg.type} sx={{ mb: 3 }}>{msg.text}</Alert>}
 
+      {/* Tagged Media */}
+      {me.personId && <TaggedMediaGrid personId={me.personId} />}
+
       {/* Edit form when editing */}
       {editing && (
         <Box className="card" sx={{ p: { xs: 3, sm: 4 } }}>
@@ -585,6 +589,7 @@ export default function MeProfilePage() {
               onChange={(pid) => setMotherId(pid ?? '')}
               onAddPerson={handleAddPerson}
               placeholder={pendingMotherLabel ? `${pendingMotherLabel} (pending)` : motherName ? motherName : 'Search or add…'}
+              excludePersonIds={me?.personId ? [me.personId] : undefined}
             />
             {typeof motherId === 'number' && (
               <FormControl size="small" sx={{ minWidth: 200 }}>
@@ -608,6 +613,7 @@ export default function MeProfilePage() {
               onChange={(pid) => setFatherId(pid ?? '')}
               onAddPerson={handleAddPerson}
               placeholder={pendingFatherLabel ? `${pendingFatherLabel} (pending)` : fatherName ? fatherName : 'Search or add…'}
+              excludePersonIds={me?.personId ? [me.personId] : undefined}
             />
             {typeof fatherId === 'number' && (
               <FormControl size="small" sx={{ minWidth: 200 }}>

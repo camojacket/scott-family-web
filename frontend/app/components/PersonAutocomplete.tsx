@@ -39,6 +39,8 @@ export interface PersonAutocompleteProps {
   placeholder?: string;
   /** Person IDs to exclude from autocomplete results. */
   excludePersonIds?: number[];
+  /** When true, archived (elder) profiles are excluded from results. Default false. */
+  excludeArchived?: boolean;
 }
 
 function useDebounced<T>(val: T, ms = 250) {
@@ -59,6 +61,7 @@ export default function PersonAutocomplete({
   disabled,
   placeholder,
   excludePersonIds,
+  excludeArchived = false,
 }: PersonAutocompleteProps) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -86,7 +89,7 @@ export default function PersonAutocomplete({
       try {
         setLoading(true);
         const apiBase = process.env.NEXT_PUBLIC_API_BASE ?? '';
-        const res = await fetch(`${apiBase}/api/people/search?q=${encodeURIComponent(debounced)}&limit=10`, {
+        const res = await fetch(`${apiBase}/api/people/search?q=${encodeURIComponent(debounced)}&limit=10&excludeArchived=${excludeArchived}`, {
           credentials: 'include',
         });
         if (!res.ok) throw new Error('Search failed');

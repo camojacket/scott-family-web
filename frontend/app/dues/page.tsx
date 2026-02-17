@@ -797,6 +797,7 @@ export default function DuesPage() {
                 onChangeFull={addOnBehalf}
                 placeholder="Type a name to search…"
                 excludePersonIds={myPersonId ? [myPersonId] : undefined}
+                excludeArchived
               />
             </Box>
 

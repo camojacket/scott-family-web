@@ -126,6 +126,45 @@ public class GalleryService {
     }
 
     /**
+     * Return gallery images tagged with a specific person, ordered by imageDate desc.
+     */
+    public List<GalleryImageDto> getByPersonId(Long personId) {
+        // Find image IDs tagged with this person
+        List<Long> imageIds = dsl.select(TAG_IMAGE_ID)
+                .from(GALLERY_IMAGE_TAGS)
+                .where(TAG_PERSON_ID.eq(personId))
+                .fetchInto(Long.class);
+
+        if (imageIds.isEmpty()) return List.of();
+
+        Map<Long, List<ImageTagDto>> tagMap = getAllTags();
+
+        return dsl.selectFrom(GALLERY_IMAGES)
+                .where(F_ID.in(imageIds))
+                .orderBy(
+                        DSL.field("IMAGE_DATE").desc().nullsLast(),
+                        DSL.field("UPLOADED_AT").desc()
+                )
+                .fetch()
+                .map(r -> {
+                    Long id = r.get(F_ID);
+                    return GalleryImageDto.builder()
+                        .id(id)
+                        .blobKey(r.get(F_BLOB_KEY))
+                        .cdnUrl(r.get(F_CDN_URL))
+                        .fileName(r.get(F_FILE_NAME))
+                        .contentType(r.get(F_CONTENT_TYPE))
+                        .sizeBytes(r.get(F_SIZE_BYTES))
+                        .caption(r.get(F_CAPTION))
+                        .imageDate(toLocalDate(r.get("IMAGE_DATE")))
+                        .uploadedBy(r.get(F_UPLOADED_BY))
+                        .uploadedAt(r.get(F_UPLOADED_AT))
+                        .tags(tagMap.getOrDefault(id, new ArrayList<>()))
+                        .build();
+                });
+    }
+
+    /**
      * Update caption and/or date for an existing gallery image.
      */
     @Transactional
