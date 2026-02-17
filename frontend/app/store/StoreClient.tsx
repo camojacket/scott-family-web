@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -13,11 +13,13 @@ import {
   Grid,
   Badge,
   Alert,
+  CircularProgress,
 } from '@mui/material';
 import StorefrontIcon from '@mui/icons-material/Storefront';
 import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
 import Link from 'next/link';
 import { useCart } from '../lib/CartContext';
+import { apiFetch } from '../lib/api';
 import type { ProductDto } from '../lib/types';
 
 const formatCents = (cents: number) => `$${(cents / 100).toFixed(2)}`;
@@ -172,7 +174,26 @@ export function ProductGrid({ products }: { products: ProductDto[] }) {
   );
 }
 
-export function StorePageLayout({ products, error }: { products: ProductDto[]; error: string }) {
+export function StorePageLayout({ initialProducts }: { initialProducts?: ProductDto[] }) {
+  const [products, setProducts] = useState<ProductDto[]>(initialProducts ?? []);
+  const [loading, setLoading] = useState(!initialProducts);
+  const [error, setError] = useState('');
+
+  const loadProducts = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError('');
+      const data = await apiFetch<ProductDto[]>('/api/store/products');
+      setProducts(data);
+    } catch {
+      setError('Failed to load products. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { if (!initialProducts) loadProducts(); }, [loadProducts, initialProducts]);
+
   return (
     <Box sx={{ maxWidth: 900, mx: 'auto', py: { xs: 3, sm: 5 } }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 4 }}>
@@ -188,8 +209,14 @@ export function StorePageLayout({ products, error }: { products: ProductDto[]; e
         <CartButton />
       </Box>
 
-      {error ? (
-        <Alert severity="error">{error}</Alert>
+      {loading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+          <CircularProgress />
+        </Box>
+      ) : error ? (
+        <Alert severity="error" action={
+          <Button color="inherit" size="small" onClick={loadProducts}>Retry</Button>
+        }>{error}</Alert>
       ) : (
         <ProductGrid products={products} />
       )}

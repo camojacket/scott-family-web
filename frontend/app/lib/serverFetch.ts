@@ -46,6 +46,7 @@ export async function serverFetch<T = unknown>(
 ): Promise<T> {
   const origin = await resolveOrigin();
   const url = `${origin}${normalizePath(path)}`;
+  console.error(`[serverFetch] ${path} → ${url}`);
 
   // Forward the user's cookies so the backend sees the session
   const cookieStore = await cookies();

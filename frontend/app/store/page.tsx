@@ -9,16 +9,13 @@ export const metadata: Metadata = {
 };
 
 export default async function StorePage() {
-  let products: ProductDto[] = [];
-  let error = '';
+  let initialProducts: ProductDto[] | undefined;
 
   try {
-    products = await serverFetch<ProductDto[]>('/api/store/products');
-  } catch (e) {
-    const detail = e instanceof Error ? e.message : String(e);
-    console.error('[StorePage] serverFetch failed:', detail);
-    error = `Failed to load products: ${detail}`;
+    initialProducts = await serverFetch<ProductDto[]>('/api/store/products');
+  } catch {
+    // Client will re-fetch on mount
   }
 
-  return <StorePageLayout products={products} error={error} />;
+  return <StorePageLayout initialProducts={initialProducts} />;
 }
