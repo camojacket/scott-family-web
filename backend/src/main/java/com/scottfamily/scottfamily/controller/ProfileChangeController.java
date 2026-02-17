@@ -25,6 +25,7 @@ import com.scottfamily.scottfamily.service.SiteSettingsService;
 import static com.yourproject.generated.scott_family_web.tables.ProfileChangeRequests.PROFILE_CHANGE_REQUESTS;
 import static com.yourproject.generated.scott_family_web.tables.Users.USERS;
 import static com.yourproject.generated.scott_family_web.tables.People.PEOPLE;
+import static com.yourproject.generated.scott_family_web.tables.PersonParent.PERSON_PARENT;
 import static org.jooq.impl.DSL.*;
 
 @RestController
@@ -34,7 +35,6 @@ public class ProfileChangeController {
 
     private final DSLContext dsl;
     private final SiteSettingsService siteSettings;
-    private final AdminModerationController adminModerationController;
 
     private static final java.util.Set<String> ACCEPTED_FIELDS =
             java.util.Set.of("mother_id", "father_id", "add_child", "add_sibling", "add_spouse");
@@ -180,9 +180,10 @@ public class ProfileChangeController {
                     .returning(PROFILE_CHANGE_REQUESTS.ID)
                     .fetchOne(PROFILE_CHANGE_REQUESTS.ID);
 
-            // Auto-approve if bypass is enabled
+            // Auto-approve if bypass is enabled (inline logic to avoid
+            // AdminModerationController's class-level @PreAuthorize("hasRole('ADMIN')"))
             if (requestId != null && siteSettings.isEnabled(SiteSettingsService.BYPASS_PROFILE_CHANGE_APPROVAL)) {
-                adminModerationController.approveProfileChange(requestId);
+                autoApprove(requestId);
             }
         }
     }
@@ -219,7 +220,9 @@ public class ProfileChangeController {
 
             // Resolve label for mother_id / father_id / add_child
             if ("mother_id".equals(pc.field) || "father_id".equals(pc.field)) {
-                Long pid = parseLongOrNull(pc.newValue);
+                // newValue may be "personId" (legacy) or "personId:RELATION" (new)
+                String[] parts = pc.newValue.split(":", 2);
+                Long pid = parseLongOrNull(parts[0]);
                 if (pid != null) {
                     pc.label = resolvePersonName(pid);
                 } else {
@@ -363,6 +366,128 @@ public class ProfileChangeController {
             return t.isEmpty() ? null : Long.parseLong(t);
         } catch (Exception e) {
             return null;
+        }
+    }
+
+    /**
+     * Auto-approve a profile change request without requiring admin role.
+     * Replicates the core logic from AdminModerationController.approveProfileChange()
+     * to avoid triggering its class-level @PreAuthorize("hasRole('ADMIN')").
+     */
+    private void autoApprove(Long requestId) {
+        if (requestId == null) return;
+
+        var r = dsl.selectFrom(PROFILE_CHANGE_REQUESTS)
+                .where(PROFILE_CHANGE_REQUESTS.ID.eq(requestId))
+                .fetchOne();
+        if (r == null || !"PENDING".equals(r.getStatus())) return;
+
+        String field = r.getField();
+        String newValue = r.getNewValue();
+        Long userId = r.getUserId();
+
+        Long myPersonId = dsl.select(USERS.PERSON_ID)
+                .from(USERS)
+                .where(USERS.ID.eq(userId))
+                .fetchOneInto(Long.class);
+
+        if (myPersonId != null && newValue != null) {
+            String[] parts = newValue.split(":", 2);
+            Long targetPersonId = parseLongOrNull(parts[0]);
+            String relation = parts.length > 1 && !parts[1].isBlank() ? parts[1] : null;
+
+            switch (field) {
+                case "mother_id" -> {
+                    if (relation == null) relation = "BIOLOGICAL_MOTHER";
+                    if ("BIOLOGICAL_MOTHER".equals(relation) && targetPersonId != null) {
+                        dsl.update(PEOPLE).set(PEOPLE.MOTHER_ID, targetPersonId)
+                                .where(PEOPLE.ID.eq(myPersonId)).execute();
+                    }
+                    if (targetPersonId != null) {
+                        upsertPersonParent(myPersonId, targetPersonId, relation);
+                    }
+                }
+                case "father_id" -> {
+                    if (relation == null) relation = "BIOLOGICAL_FATHER";
+                    if ("BIOLOGICAL_FATHER".equals(relation) && targetPersonId != null) {
+                        dsl.update(PEOPLE).set(PEOPLE.FATHER_ID, targetPersonId)
+                                .where(PEOPLE.ID.eq(myPersonId)).execute();
+                    }
+                    if (targetPersonId != null) {
+                        upsertPersonParent(myPersonId, targetPersonId, relation);
+                    }
+                }
+                case "add_child" -> {
+                    if (targetPersonId != null && relation != null) {
+                        upsertPersonParent(targetPersonId, myPersonId, relation);
+                    }
+                }
+                case "add_sibling" -> {
+                    if (targetPersonId != null && relation != null) {
+                        Long aId = Math.min(myPersonId, targetPersonId);
+                        Long bId = Math.max(myPersonId, targetPersonId);
+                        boolean exists = dsl.fetchExists(
+                                selectOne()
+                                        .from(table(name("PERSON_SIBLING")))
+                                        .where(field(name("PERSON_A_ID"), Long.class).eq(aId))
+                                        .and(field(name("PERSON_B_ID"), Long.class).eq(bId))
+                        );
+                        if (!exists) {
+                            dsl.insertInto(table(name("PERSON_SIBLING")))
+                                    .set(field(name("PERSON_A_ID"), Long.class), aId)
+                                    .set(field(name("PERSON_B_ID"), Long.class), bId)
+                                    .set(field(name("RELATION"), String.class), relation)
+                                    .execute();
+                        }
+                    }
+                }
+                case "add_spouse" -> {
+                    if (targetPersonId != null && relation != null) {
+                        Long aId = Math.min(myPersonId, targetPersonId);
+                        Long bId = Math.max(myPersonId, targetPersonId);
+                        boolean exists = dsl.fetchExists(
+                                selectOne()
+                                        .from(table(name("PERSON_SPOUSE")))
+                                        .where(field(name("PERSON_ID"), Long.class).eq(aId))
+                                        .and(field(name("SPOUSE_PERSON_ID"), Long.class).eq(bId))
+                        );
+                        if (!exists) {
+                            dsl.insertInto(table(name("PERSON_SPOUSE")))
+                                    .set(field(name("PERSON_ID"), Long.class), aId)
+                                    .set(field(name("SPOUSE_PERSON_ID"), Long.class), bId)
+                                    .set(field(name("RELATION"), String.class), relation)
+                                    .execute();
+                        }
+                    }
+                }
+                default -> { /* no-op */ }
+            }
+        }
+
+        // Mark as APPROVED
+        dsl.update(PROFILE_CHANGE_REQUESTS)
+                .set(PROFILE_CHANGE_REQUESTS.STATUS, "APPROVED")
+                .set(PROFILE_CHANGE_REQUESTS.REVIEWED_AT, OffsetDateTime.now())
+                .where(PROFILE_CHANGE_REQUESTS.ID.eq(requestId))
+                .execute();
+    }
+
+    private void upsertPersonParent(Long childId, Long parentId, String relation) {
+        if (childId == null || parentId == null || relation == null || relation.isBlank()) return;
+        boolean exists = dsl.fetchExists(
+                selectOne()
+                        .from(PERSON_PARENT)
+                        .where(PERSON_PARENT.CHILD_PERSON_ID.eq(childId))
+                        .and(PERSON_PARENT.PARENT_PERSON_ID.eq(parentId))
+                        .and(PERSON_PARENT.RELATION.eq(relation))
+        );
+        if (!exists) {
+            dsl.insertInto(PERSON_PARENT,
+                            PERSON_PARENT.CHILD_PERSON_ID,
+                            PERSON_PARENT.PARENT_PERSON_ID,
+                            PERSON_PARENT.RELATION)
+                    .values(childId, parentId, relation)
+                    .execute();
         }
     }
 }
