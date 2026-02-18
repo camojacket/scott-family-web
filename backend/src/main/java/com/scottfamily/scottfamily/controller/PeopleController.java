@@ -23,6 +23,7 @@ import jakarta.validation.Valid;
 
 import com.scottfamily.scottfamily.dto.DTOs;
 import com.scottfamily.scottfamily.service.PeopleService;
+import com.scottfamily.scottfamily.service.SiteSettingsService;
 import static com.yourproject.generated.scott_family_web.tables.ProfileChangeRequests.PROFILE_CHANGE_REQUESTS;
 import static com.yourproject.generated.scott_family_web.tables.Users.USERS;
 
@@ -34,6 +35,7 @@ import lombok.RequiredArgsConstructor;
 public class PeopleController {
     private final PeopleService people;
     private final DSLContext dsl;
+    private final SiteSettingsService settings;
 
     @GetMapping("/people/search")
     public List<DTOs.PersonSummaryDto> search(@RequestParam("q") String q,
@@ -145,6 +147,7 @@ public class PeopleController {
         queueIfPresent(userId, personId, "person_lastName", req.getLastName());
         queueIfPresent(userId, personId, "person_dateOfBirth", req.getDateOfBirth());
         queueIfPresent(userId, personId, "person_dateOfDeath", req.getDateOfDeath());
+        queueIfPresent(userId, personId, "person_bio", req.getBio());
         if (req.getMotherId() != null) {
             String motherVal = req.getMotherId().toString();
             if (req.getMotherRelation() != null && !req.getMotherRelation().isBlank())
@@ -178,6 +181,46 @@ public class PeopleController {
                         PROFILE_CHANGE_REQUESTS.STATUS, PROFILE_CHANGE_REQUESTS.REQUESTED_AT)
                 .values(userId, field, "person:" + personId, newValue, "PENDING", OffsetDateTime.now())
                 .execute();
+    }
+
+    /**
+     * Edit bio for a people-only profile (no linked user account).
+     * Admin: applied directly. Non-admin: requires approval unless bypass is on.
+     */
+    @PutMapping("/people/{personId}/bio")
+    public ResponseEntity<?> editBio(
+            @PathVariable Long personId,
+            @AuthenticationPrincipal User principal,
+            @RequestBody BioRequest req
+    ) {
+        if (principal == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        if (people.hasAccount(personId))
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Use profile endpoint for accounts");
+
+        boolean admin = principal.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+
+        boolean bypass = settings.isEnabled(SiteSettingsService.BYPASS_PEOPLE_REQUEST_APPROVAL);
+
+        if (admin || bypass) {
+            // Apply directly
+            DTOs.EditPersonRequest editReq = new DTOs.EditPersonRequest();
+            editReq.setBio(req.bio);
+            people.updatePerson(personId, editReq);
+            return ResponseEntity.ok().body(java.util.Map.of("applied", true));
+        } else {
+            // Queue for approval
+            Long userId = dsl.select(USERS.ID).from(USERS)
+                    .where(USERS.USERNAME.eq(principal.getUsername()))
+                    .fetchOneInto(Long.class);
+            if (userId == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+            queueIfPresent(userId, personId, "person_bio", req.bio);
+            return ResponseEntity.ok().body(java.util.Map.of("applied", false));
+        }
+    }
+
+    public static class BioRequest {
+        public String bio;
     }
 
     /**

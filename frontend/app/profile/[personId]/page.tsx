@@ -85,6 +85,7 @@ export default function ProfilePage() {
   const [editLastName, setEditLastName] = useState('');
   const [editDob, setEditDob] = useState('');
   const [editDod, setEditDod] = useState('');
+  const [editBio, setEditBio] = useState('');
   const [editMotherId, setEditMotherId] = useState<number | null>(null);
   const [editFatherId, setEditFatherId] = useState<number | null>(null);
   const [editMotherRelation, setEditMotherRelation] = useState('BIOLOGICAL_MOTHER');
@@ -110,6 +111,7 @@ export default function ProfilePage() {
         setEditFirstName(parts[0] || '');
         setEditLastName(parts.slice(1).join(' ') || '');
       }
+      setEditBio(p.bio || '');
       setEditDob(p.dateOfBirth || '');
       setEditDod(p.dateOfDeath || '');
       setEditMotherId(p.motherId ?? null);
@@ -156,6 +158,7 @@ export default function ProfilePage() {
         lastName: editLastName || undefined,
         dateOfBirth: editDob || undefined,
         dateOfDeath: editDod || undefined,
+        bio: editBio.trim() || undefined,
         motherId: editMotherId,
         fatherId: editFatherId,
         motherRelation: editMotherId ? editMotherRelation : undefined,
@@ -442,6 +445,15 @@ export default function ProfilePage() {
                 </FormControl>
               )}
             </Stack>
+            <TextField
+              label="Bio"
+              value={editBio}
+              onChange={e => setEditBio(e.target.value)}
+              multiline
+              rows={3}
+              fullWidth
+              placeholder="Write a short biography…"
+            />
             {/* Profile picture & banner uploads — admin only */}
             {isAdmin && (
               <>

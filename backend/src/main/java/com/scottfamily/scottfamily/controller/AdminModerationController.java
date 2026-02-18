@@ -289,6 +289,7 @@ public class AdminModerationController {
             case "person_lastName"    -> req.setLastName(newValue);
             case "person_dateOfBirth" -> req.setDateOfBirth(newValue);
             case "person_dateOfDeath" -> req.setDateOfDeath(newValue);
+            case "person_bio"         -> req.setBio(newValue);
             case "person_motherId"   -> {
                 // newValue may be "personId" or "personId:RELATION"
                 String[] parts = newValue.split(":", 2);

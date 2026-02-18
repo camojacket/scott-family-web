@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
   Box, CircularProgress, Typography, Link as MUILink, IconButton, Tooltip,
   TextField, InputAdornment, Chip, Dialog, DialogTitle, DialogContent,
-  DialogActions, Button, Stack, Autocomplete, MenuItem,
+  DialogActions, Button, Stack, Autocomplete, MenuItem, Alert,
 } from '@mui/material';
 import FullscreenIcon from '@mui/icons-material/Fullscreen';
 import FullscreenExitIcon from '@mui/icons-material/FullscreenExit';
@@ -13,6 +13,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
+import EditNoteIcon from '@mui/icons-material/EditNote';
 import CenterFocusStrongIcon from '@mui/icons-material/CenterFocusStrong';
 import NextLink from 'next/link';
 import { apiFetch } from '../lib/api';
@@ -88,31 +89,44 @@ function flattenNodes(
   return flat;
 }
 
-/** Compute x-offset for the i-th spouse relative to the d3 node center */
+const UNDER_COUPLE_BASE = 18;
+
+/** Compute x-offset for the i-th spouse relative to the d3 node center.
+ *  Spouses alternate right/left: index 0→right, 1→left, 2→right, 3→left … */
 function spouseOffset(spouseCount: number, index: number): number {
-  if (spouseCount === 1) {
-    // Current: person left, spouse right
-    return (NODE_W + COUPLE_GAP);
-  }
-  if (spouseCount === 2) {
-    // Person center, spouse0 left, spouse1 right
-    return index === 0 ? -(NODE_W + COUPLE_GAP) : (NODE_W + COUPLE_GAP);
-  }
-  // 3+: person leftmost, spouses in a row to the right
-  return (index + 1) * (NODE_W + COUPLE_GAP);
+  if (spouseCount === 0) return 0;
+  if (spouseCount === 1) return (NODE_W + COUPLE_GAP); // single spouse → right
+  const side = index % 2 === 0 ? 1 : -1;
+  const rank = Math.floor(index / 2) + 1;
+  return side * rank * (NODE_W + COUPLE_GAP);
 }
 
-/** Compute x-offset for the primary person when they have spouses */
-function personOffset(spouseCount: number): number {
-  if (spouseCount === 1) return -(NODE_W + COUPLE_GAP) / 2;
-  if (spouseCount === 2) return 0;  // person centered
-  return 0;  // 3+: person on the left edge (at d3 x)
+/** Person is always centered at d3 node x */
+function personOffset(_spouseCount: number): number {
+  return 0;
 }
 
-/** Total "unit width" used in d3 separation for a node with N spouses */
-function clusterWidth(spouseCount: number): number {
-  if (spouseCount <= 1) return spouseCount === 0 ? 1 : 2;
-  return 1 + spouseCount;
+/** Rank of a spouse: 1 = immediately adjacent, 2+ = further out */
+function spouseRank(spouseCount: number, index: number): number {
+  if (spouseCount <= 1) return 1;
+  return Math.floor(index / 2) + 1;
+}
+
+/** Spatial position (negative = left, positive = right) for ordering children */
+function spouseSpatialPos(spouseCount: number, index: number): number {
+  if (spouseCount === 1) return 1;
+  const side = index % 2 === 0 ? 1 : -1;
+  const rank = Math.floor(index / 2) + 1;
+  return side * rank;
+}
+
+/** Pixel half-width of a person+spouse cluster (centre to farthest edge).
+ *  Uses the max rank (ceil(N/2)) so the result is symmetric — safe
+ *  regardless of which side D3 compares during subtree apportioning. */
+function clusterHalfWidth(spouseCount: number): number {
+  if (spouseCount === 0) return NODE_W / 2;
+  const maxRank = Math.ceil(spouseCount / 2);
+  return maxRank * (NODE_W + COUPLE_GAP) + NODE_W / 2;
 }
 
 /* ---- format dates ---- */
@@ -261,6 +275,13 @@ export default function FamilyTreePage() {
           root={root}
           myPersonId={myPersonId}
           fullscreen={fullscreen}
+          isAdmin={isAdmin}
+          isLoggedIn={!!myPersonId}
+          onTreeReload={() => {
+            apiFetch<FamilyNodeDto>('/api/family/tree', { method: 'GET' })
+              .then(setRoot)
+              .catch(console.error);
+          }}
           searchTerm={searchTerm}
           matchIdx={matchIdx}
           searchOpen={searchOpen}
@@ -296,6 +317,9 @@ interface SvgTreeProps {
   root: FamilyNodeDto;
   myPersonId: number | null;
   fullscreen: boolean;
+  isAdmin: boolean;
+  isLoggedIn: boolean;
+  onTreeReload: () => void;
   searchTerm: string;
   matchIdx: number;
   searchOpen: boolean;
@@ -305,7 +329,7 @@ interface SvgTreeProps {
 }
 
 function SvgTree({
-  root, myPersonId, fullscreen,
+  root, myPersonId, fullscreen, isAdmin, isLoggedIn, onTreeReload,
   searchTerm, matchIdx, searchOpen, setSearchTerm, setMatchIdx, setSearchOpen,
 }: SvgTreeProps) {
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -315,6 +339,9 @@ function SvgTree({
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [initialCenterDone, setInitialCenterDone] = useState(false);
   const [highlightIds, setHighlightIds] = useState<Set<number>>(new Set());
+  const [hoveredConnector, setHoveredConnector] = useState<string | null>(null);
+  const [clickedNodeId, setClickedNodeId] = useState<number | null>(null);
+  const [editBioNode, setEditBioNode] = useState<{ id: number; name: string } | null>(null);
 
   useEffect(() => {
     const handle = () => {
@@ -335,18 +362,34 @@ function SvgTree({
   /* Build d3 hierarchy */
   const { nodes, linkGroups, coupleLinks, crossLinks, translate } = useMemo(() => {
     // Reorder children of multi-spouse nodes so D3 places them
-    // left-to-right matching the spouse layout:
-    //   2 spouses: [spouse0(left) kids, solo(center) kids, spouse1(right) kids]
+    // left-to-right matching the spouse spatial layout.
     function reorderChildren(node: FamilyNodeDto): FamilyNodeDto {
       const sc = node.spouses?.length ?? 0;
       let kids = node.children;
-      if (sc === 2) {
-        const s0 = new Set(node.spouses[0].childIds ?? []);
-        const s1 = new Set(node.spouses[1].childIds ?? []);
-        const g0 = kids.filter(c => s0.has(c.id));
-        const solo = kids.filter(c => !s0.has(c.id) && !s1.has(c.id));
-        const g1 = kids.filter(c => s1.has(c.id));
-        kids = [...g0, ...solo, ...g1];
+      if (sc >= 1) {
+        const spouseSets = node.spouses.map((s, i) => ({
+          index: i,
+          childIds: new Set(s.childIds ?? []),
+          spatialPos: spouseSpatialPos(sc, i),
+        }));
+        const sorted = [...spouseSets].sort((a, b) => a.spatialPos - b.spatialPos);
+        const grouped = new Map<number, FamilyNodeDto[]>();
+        const soloKids: FamilyNodeDto[] = [];
+        for (const c of kids) {
+          let placed = false;
+          for (const sp of spouseSets) {
+            if (sp.childIds.has(c.id)) {
+              if (!grouped.has(sp.index)) grouped.set(sp.index, []);
+              grouped.get(sp.index)!.push(c);
+              placed = true;
+              break;
+            }
+          }
+          if (!placed) soloKids.push(c);
+        }
+        const leftKids = sorted.filter(s => s.spatialPos < 0).flatMap(s => grouped.get(s.index) ?? []);
+        const rightKids = sorted.filter(s => s.spatialPos > 0).flatMap(s => grouped.get(s.index) ?? []);
+        kids = [...leftKids, ...soloKids, ...rightKids];
       }
       return { ...node, children: kids.map(reorderChildren) };
     }
@@ -356,16 +399,46 @@ function SvgTree({
     const treeLayout = d3.tree<FamilyNodeDto>()
       .nodeSize([NODE_W + H_GAP, NODE_H + V_GAP])
       .separation((a, b) => {
-        const aw = clusterWidth(a.data.spouses?.length ?? 0);
-        const bw = clusterWidth(b.data.spouses?.length ?? 0);
-        return (aw + bw) / 2;
+        const aw = clusterHalfWidth(a.data.spouses?.length ?? 0);
+        const bw = clusterHalfWidth(b.data.spouses?.length ?? 0);
+        return (aw + bw + H_GAP) / (NODE_W + H_GAP);
       });
 
     const laid = treeLayout(hroot);
 
+    // Post-layout pass: compute extra vertical space needed per depth level.
+    // If a parent at depth D has underneath (rank 2+) connectors, children at
+    // depth D+1 need extra room.  Accumulate the extra offset so deeper levels
+    // also shift down.
+    const maxUnderByDepth = new Map<number, number>();
+    for (const d of laid.descendants()) {
+      const sc = d.data.spouses?.length ?? 0;
+      if (sc < 2) continue;
+      let maxRank = 0;
+      for (let i = 0; i < sc; i++) {
+        if (!d.data.spouses[i].spouse) continue;
+        const r = spouseRank(sc, i);
+        if (r >= 2 && r > maxRank) maxRank = r;
+      }
+      if (maxRank >= 2) {
+        const extra = maxRank * UNDER_COUPLE_BASE + 20; // room for U-connectors + padding
+        const prev = maxUnderByDepth.get(d.depth) ?? 0;
+        if (extra > prev) maxUnderByDepth.set(d.depth, extra);
+      }
+    }
+    // Build cumulative Y offset per depth
+    const depthExtraY = new Map<number, number>();
+    const maxDepth = Math.max(...laid.descendants().map(d => d.depth), 0);
+    let cumExtra = 0;
+    for (let dep = 0; dep <= maxDepth; dep++) {
+      // Extra from parent depth (dep - 1) pushes this depth down
+      if (dep > 0) cumExtra += (maxUnderByDepth.get(dep - 1) ?? 0);
+      depthExtraY.set(dep, cumExtra);
+    }
+
     const n = laid.descendants().map(d => ({
       x: d.x,
-      y: d.y,
+      y: d.y + (depthExtraY.get(d.depth) ?? 0),
       data: d.data,
       depth: d.depth,
       idPath: computeIdPath(d),
@@ -392,46 +465,113 @@ function SvgTree({
       }
     }
 
+    // Pre-compute bottom attachment offsets for each node that has spouses.
+    // Underneath couple connectors (rank 2+) and solo-child combs all attach
+    // to the person's bottom edge and must be spread horizontally.
+    // Slots are sorted by their target direction so each uses the closest slot.
+    const UNDER_SPREAD = 16;
+    type BottomSlot = { type: 'couple'; spouseIdx: number } | { type: 'solo' };
+    const nodeBottomSlots = new Map<number, { slots: BottomSlot[]; offsets: number[]; personX: number }>();
+    for (const nn of n) {
+      const sc = nn.data.spouses?.length ?? 0;
+      if (sc === 0) continue;
+      const pOff = personOffset(sc);
+      const personX = nn.x + pOff;
+
+      const allSpouseChildIds = new Set<number>();
+      for (const si of nn.data.spouses) {
+        for (const cid of (si.childIds ?? [])) allSpouseChildIds.add(cid);
+      }
+      const hasSoloKids = nn.data.children.some(c => !allSpouseChildIds.has(c.id));
+
+      // Collect slots with their target X direction for sorting
+      const slotsWithDir: { slot: BottomSlot; targetX: number }[] = [];
+      for (let i = 0; i < sc; i++) {
+        if (!nn.data.spouses[i].spouse) continue;
+        if (spouseRank(sc, i) >= 2) {
+          const spouseX = personX + spouseOffset(sc, i);
+          slotsWithDir.push({ slot: { type: 'couple', spouseIdx: i }, targetX: spouseX });
+        }
+      }
+      if (hasSoloKids) {
+        // Solo children hang directly below the person — target is personX
+        slotsWithDir.push({ slot: { type: 'solo' }, targetX: personX });
+      }
+
+      // Sort by target direction so leftmost slot gets leftmost offset
+      slotsWithDir.sort((a, b) => a.targetX - b.targetX);
+
+      const slots = slotsWithDir.map(s => s.slot);
+      const offsets = slots.map((_, si) =>
+        slots.length <= 1 ? 0 : (si - (slots.length - 1) / 2) * UNDER_SPREAD
+      );
+      nodeBottomSlots.set(nn.data.id, { slots, offsets, personX });
+    }
+
     // Build link groups: map parent → child connectors
     // For multi-spouse nodes, split into per-spouse-group sub-combs.
     // Two-pass: first collect children per group with the couple-connector
     // midpoint as anchor, then finalize into link groups.
-    type LinkGroup = { source: { x: number; y: number }; targets: { x: number; y: number }[]; stagger?: number };
+    type LinkGroup = { source: { x: number; y: number }; targets: { x: number; y: number }[]; stagger?: number; relatedIds: number[] };
     const groups = new Map<string, LinkGroup>();
-    const multiGroupData = new Map<string, { targets: { x: number; y: number }[]; sourceY: number; anchorX: number; parentKey: string }>();
+    const multiGroupData = new Map<string, { targets: { x: number; y: number }[]; sourceY: number; anchorX: number; parentKey: string; relatedIds: number[] }>();
 
     for (const lk of laid.links()) {
       const parentData = lk.source.data;
       const childId = lk.target.data.id;
       const sc = parentData.spouses?.length ?? 0;
+      const srcY = lk.source.y + (depthExtraY.get(lk.source.depth) ?? 0);
+      const tgtY = lk.target.y + (depthExtraY.get(lk.target.depth) ?? 0);
 
-      if (sc >= 2) {
+      if (sc >= 1) {
         const pOff = personOffset(sc);
         let groupSuffix = '-solo';
-        let anchorX = lk.source.x + pOff; // default: person center (solo kids)
+        let anchorX = lk.source.x + pOff;
+        let dropY = 0;
 
+        let matched = false;
+        const relIds: number[] = [parentData.id, childId];
         for (let i = 0; i < sc; i++) {
           if (parentData.spouses[i].childIds?.includes(childId)) {
             groupSuffix = `-sg${i}`;
+            matched = true;
+            const sp = parentData.spouses[i].spouse;
+            if (sp) relIds.push(sp.id);
             // Anchor at midpoint between person center and spouse center
             const personX = lk.source.x + pOff;
             const spouseX = personX + spouseOffset(sc, i);
             anchorX = (personX + spouseX) / 2;
+            // For underneath connectors (rank >= 2), shift source Y to U-connector bar level
+            const rank = spouseRank(sc, i);
+            if (rank >= 2) dropY = NODE_H / 2 + (rank - 1) * UNDER_COUPLE_BASE;
             break;
+          }
+        }
+        // For solo children, use the pre-computed spread offset so the comb
+        // doesn't visually overlap with underneath couple connectors.
+        if (!matched) {
+          const bSlots = nodeBottomSlots.get(parentData.id);
+          if (bSlots) {
+            const soloIdx = bSlots.slots.findIndex(s => s.type === 'solo');
+            if (soloIdx >= 0) anchorX = bSlots.personX + bSlots.offsets[soloIdx];
           }
         }
         const fullKey = computeIdPath(lk.source) + groupSuffix;
         if (!multiGroupData.has(fullKey)) {
-          multiGroupData.set(fullKey, { targets: [], sourceY: lk.source.y, anchorX, parentKey: computeIdPath(lk.source) });
+          multiGroupData.set(fullKey, { targets: [], sourceY: srcY + dropY, anchorX, parentKey: computeIdPath(lk.source), relatedIds: [] });
         }
-        multiGroupData.get(fullKey)!.targets.push({ x: lk.target.x, y: lk.target.y });
+        const mgd = multiGroupData.get(fullKey)!;
+        mgd.targets.push({ x: lk.target.x, y: tgtY });
+        for (const rid of relIds) { if (!mgd.relatedIds.includes(rid)) mgd.relatedIds.push(rid); }
       } else {
-        // 0 or 1 spouse: use d3's source x directly
+        // No spouses: use d3's source x directly
         const sKey = computeIdPath(lk.source);
         if (!groups.has(sKey)) {
-          groups.set(sKey, { source: { x: lk.source.x, y: lk.source.y }, targets: [] });
+          groups.set(sKey, { source: { x: lk.source.x, y: srcY }, targets: [], relatedIds: [parentData.id] });
         }
-        groups.get(sKey)!.targets.push({ x: lk.target.x, y: lk.target.y });
+        const grp = groups.get(sKey)!;
+        grp.targets.push({ x: lk.target.x, y: tgtY });
+        if (!grp.relatedIds.includes(childId)) grp.relatedIds.push(childId);
       }
     }
 
@@ -448,31 +588,71 @@ function SvgTree({
         const data = multiGroupData.get(s.key)!;
         // Leftmost gets highest stagger (most offset up), rightmost gets 0 (default)
         const stagger = count - 1 - idx;
-        groups.set(s.key, { source: { x: data.anchorX, y: data.sourceY }, targets: data.targets, stagger });
+        groups.set(s.key, { source: { x: data.anchorX, y: data.sourceY }, targets: data.targets, stagger, relatedIds: data.relatedIds });
       });
     }
 
     // Couple connector lines
-    const cl: { x1: number; y1: number; x2: number; y2: number; key: string }[] = [];
+    // When multiple lines touch the same side of a node, spread them out.
+    const cl: { key: string; path: string; relatedIds: number[] }[] = [];
     for (const nn of n) {
       const sc = nn.data.spouses?.length ?? 0;
       if (sc === 0) continue;
       const pOff = personOffset(sc);
       const personX = nn.x + pOff;
+
+      // Count how many rank-1 connectors touch each side of the person
+      const rightRank1: number[] = [];
+      const leftRank1: number[] = [];
+      for (let i = 0; i < sc; i++) {
+        if (!nn.data.spouses[i].spouse) continue;
+        const rank = spouseRank(sc, i);
+        if (rank === 1) {
+          const sOff = spouseOffset(sc, i);
+          if (sOff > 0) rightRank1.push(i); else leftRank1.push(i);
+        }
+      }
+
+      const EDGE_SPREAD = 10;
+      const bSlots = nodeBottomSlots.get(nn.data.id);
+
       for (let i = 0; i < sc; i++) {
         const sp = nn.data.spouses[i].spouse;
         if (!sp) continue;
         const sOff = spouseOffset(sc, i);
         const spouseX = personX + sOff;
-        // connector from person edge to spouse edge
-        const x1 = Math.min(personX, spouseX) + NODE_W / 2;
-        const x2 = Math.max(personX, spouseX) - NODE_W / 2;
-        cl.push({ x1, y1: nn.y, x2, y2: nn.y, key: `couple-${nn.data.id}-${sp.id}` });
+        const rank = spouseRank(sc, i);
+
+        if (rank === 1) {
+          // Horizontal connector — spread vertically if multiple on the same side
+          const sideList = sOff > 0 ? rightRank1 : leftRank1;
+          const idxInSide = sideList.indexOf(i);
+          const count = sideList.length;
+          const yOff = count <= 1 ? 0 : (idxInSide - (count - 1) / 2) * EDGE_SPREAD;
+          const y = nn.y + yOff;
+          const x1 = Math.min(personX, spouseX) + NODE_W / 2;
+          const x2 = Math.max(personX, spouseX) - NODE_W / 2;
+          cl.push({ key: `couple-${nn.data.id}-${sp.id}`, path: `M ${x1} ${y} H ${x2}`, relatedIds: [nn.data.id, sp.id] });
+        } else {
+          // Underneath U-shaped connector — use pre-computed bottom slot spread
+          let personAttachX = personX;
+          if (bSlots) {
+            const slotIdx = bSlots.slots.findIndex(s => s.type === 'couple' && s.spouseIdx === i);
+            if (slotIdx >= 0) personAttachX = bSlots.personX + bSlots.offsets[slotIdx];
+          }
+          const yBottom = nn.y + NODE_H / 2;
+          const drop = (rank - 1) * UNDER_COUPLE_BASE;
+          cl.push({
+            key: `couple-${nn.data.id}-${sp.id}`,
+            path: `M ${personAttachX} ${yBottom} V ${yBottom + drop} H ${spouseX} V ${yBottom}`,
+            relatedIds: [nn.data.id, sp.id],
+          });
+        }
       }
     }
 
     // Cross-links: nodes with spouseRefId
-    const crossLks: { fromX: number; fromY: number; toX: number; toY: number; key: string }[] = [];
+    const crossLks: { fromX: number; fromY: number; toX: number; toY: number; key: string; relatedIds: number[] }[] = [];
     for (const nn of n) {
       const sc = nn.data.spouses?.length ?? 0;
       for (let i = 0; i < sc; i++) {
@@ -485,6 +665,7 @@ function SvgTree({
           fromX: from.x, fromY: from.y,
           toX: target.x, toY: target.y,
           key: `xlink-${nn.data.id}-${refId}`,
+          relatedIds: [nn.data.id, refId],
         });
       }
     }
@@ -497,6 +678,36 @@ function SvgTree({
       translate: { x: 60, y: 40 },
     };
   }, [root]);
+
+  /* Build map: person id → set of connector keys they're related to */
+  const connectorsByPersonId = useMemo(() => {
+    const m = new Map<number, Set<string>>();
+    const add = (id: number, key: string) => {
+      if (!m.has(id)) m.set(id, new Set());
+      m.get(id)!.add(key);
+    };
+    for (const lg of linkGroups) {
+      for (const rid of lg.relatedIds) add(rid, lg.key);
+    }
+    for (const cl of coupleLinks) {
+      for (const rid of cl.relatedIds) add(rid, cl.key);
+    }
+    for (const xl of crossLinks) {
+      for (const rid of xl.relatedIds) add(rid, xl.key);
+    }
+    return m;
+  }, [linkGroups, coupleLinks, crossLinks]);
+
+  /* Active (highlighted) connector keys: hovered connector OR all connectors for clicked node */
+  const activeConnectors = useMemo(() => {
+    const s = new Set<string>();
+    if (hoveredConnector) s.add(hoveredConnector);
+    if (clickedNodeId !== null) {
+      const keys = connectorsByPersonId.get(clickedNodeId);
+      if (keys) keys.forEach(k => s.add(k));
+    }
+    return s;
+  }, [hoveredConnector, clickedNodeId, connectorsByPersonId]);
 
   /* Search matches */
   const flatNodes = useMemo(() => flattenNodes(nodes), [nodes]);
@@ -693,40 +904,66 @@ function SvgTree({
               }
             `}</style>
           </defs>
-          <rect x={0} y={0} width={viewport.width} height={viewport.height} fill="#fafafa" />
+          <rect x={0} y={0} width={viewport.width} height={viewport.height} fill="#fafafa"
+            onClick={() => setClickedNodeId(null)} />
           <g ref={gRef}>
             {/* Comb-style connectors */}
-            <g fill="none" stroke="#c8ccd2" strokeWidth={1.2}>
+            <g fill="none">
               {linkGroups.map(lg => {
-                const sy = lg.source.y + NODE_H / 2;
+                const isActive = activeConnectors.has(lg.key);
+                const strokeColor = isActive ? '#1976d2' : '#c8ccd2';
+                const strokeW = isActive ? 2.4 : 1.2;
+                // For couple-group combs the source is the couple connector midpoint,
+                // so start right at the couple connector Y (center of node row) plus
+                // any underneath-connector drop.  For solo nodes (no spouse) start
+                // from the bottom edge of the node card.
+                const isCoupleGroup = /-sg\d+$/.test(lg.key);
+                const sy = isCoupleGroup ? lg.source.y : lg.source.y + NODE_H / 2;
                 const ty = lg.targets[0].y - NODE_H / 2;
-                const baseMidY = (sy + ty) / 2;
+                // Place the horizontal bar closer to children (75% of the way down)
+                // so it doesn't overlap with parent-row nodes.
                 const STAGGER_STEP = 14;
-                const midY = baseMidY - (lg.stagger ?? 0) * STAGGER_STEP;
+                const midY = ty - 30 - (lg.stagger ?? 0) * STAGGER_STEP;
                 const ax = lg.source.x;
                 const allX = [ax, ...lg.targets.map(t => t.x)];
                 const barLeft = Math.min(...allX);
                 const barRight = Math.max(...allX);
                 return (
-                  <g key={lg.key}>
-                    <line x1={ax} y1={sy} x2={ax} y2={midY} />
-                    {barLeft < barRight && <line x1={barLeft} y1={midY} x2={barRight} y2={midY} />}
-                    {lg.targets.map((t, i) => <line key={i} x1={t.x} y1={midY} x2={t.x} y2={ty} />)}
+                  <g key={lg.key} style={{ cursor: 'pointer' }}
+                    onMouseEnter={() => setHoveredConnector(lg.key)}
+                    onMouseLeave={() => setHoveredConnector(k => k === lg.key ? null : k)}>
+                    {/* Invisible wider hit area */}
+                    <line x1={ax} y1={sy} x2={ax} y2={midY} stroke="transparent" strokeWidth={10} />
+                    {barLeft < barRight && <line x1={barLeft} y1={midY} x2={barRight} y2={midY} stroke="transparent" strokeWidth={10} />}
+                    {lg.targets.map((t, i) => <line key={`h${i}`} x1={t.x} y1={midY} x2={t.x} y2={ty} stroke="transparent" strokeWidth={10} />)}
+                    {/* Visible lines */}
+                    <line x1={ax} y1={sy} x2={ax} y2={midY} stroke={strokeColor} strokeWidth={strokeW} />
+                    {barLeft < barRight && <line x1={barLeft} y1={midY} x2={barRight} y2={midY} stroke={strokeColor} strokeWidth={strokeW} />}
+                    {lg.targets.map((t, i) => <line key={i} x1={t.x} y1={midY} x2={t.x} y2={ty} stroke={strokeColor} strokeWidth={strokeW} />)}
                   </g>
                 );
               })}
             </g>
 
             {/* Couple connectors */}
-            <g stroke="#c8ccd2" strokeWidth={1.2}>
-              {coupleLinks.map(cl => (
-                <line key={cl.key} x1={cl.x1} y1={cl.y1} x2={cl.x2} y2={cl.y2} />
-              ))}
+            <g fill="none">
+              {coupleLinks.map(cl => {
+                const isActive = activeConnectors.has(cl.key);
+                return (
+                  <g key={cl.key} style={{ cursor: 'pointer' }}
+                    onMouseEnter={() => setHoveredConnector(cl.key)}
+                    onMouseLeave={() => setHoveredConnector(k => k === cl.key ? null : k)}>
+                    <path d={cl.path} stroke="transparent" strokeWidth={10} />
+                    <path d={cl.path} stroke={isActive ? '#1976d2' : '#c8ccd2'} strokeWidth={isActive ? 2.4 : 1.2} />
+                  </g>
+                );
+              })}
             </g>
 
             {/* Cross-links: dashed curved connector to a spouse placed elsewhere */}
-            <g fill="none" stroke="#90a4ae" strokeWidth={1.4} strokeDasharray="6 4">
+            <g fill="none">
               {crossLinks.map(xl => {
+                const isActive = activeConnectors.has(xl.key);
                 // Curved path: go up from source, arc over, come down to target
                 const dx = xl.toX - xl.fromX;
                 const dy = xl.toY - xl.fromY;
@@ -735,7 +972,18 @@ function SvgTree({
                 const cpY = Math.min(xl.fromY, xl.toY) - cpOffset;
                 const path = `M ${xl.fromX} ${xl.fromY - NODE_H / 2}`
                   + ` Q ${xl.fromX + dx * 0.5} ${cpY}, ${xl.toX} ${xl.toY - NODE_H / 2}`;
-                return <path key={xl.key} d={path} markerEnd="url(#crosslink-arrow)" />;
+                return (
+                  <g key={xl.key} style={{ cursor: 'pointer' }}
+                    onMouseEnter={() => setHoveredConnector(xl.key)}
+                    onMouseLeave={() => setHoveredConnector(k => k === xl.key ? null : k)}>
+                    <path d={path} stroke="transparent" strokeWidth={10} />
+                    <path d={path}
+                      stroke={isActive ? '#1976d2' : '#90a4ae'}
+                      strokeWidth={isActive ? 2.4 : 1.4}
+                      strokeDasharray={isActive ? 'none' : '6 4'}
+                      markerEnd="url(#crosslink-arrow)" />
+                  </g>
+                );
               })}
             </g>
 
@@ -747,16 +995,18 @@ function SvgTree({
                 return (
                   <g key={n.idPath} transform={`translate(${n.x},${n.y})`}>
                     {/* Primary person */}
-                    <g transform={`translate(${pOff},0)`}>
-                      <NodeBox node={n.data} myPersonId={myPersonId} isMatch={matchIdSet.has(n.data.id)} isActive={activeMatchId === n.data.id} isHighlighted={highlightIds.has(n.data.id)} />
+                    <g transform={`translate(${pOff},0)`} onClick={(e) => { e.stopPropagation(); setClickedNodeId(prev => prev === n.data.id ? null : n.data.id); }}>
+                      <NodeBox node={n.data} myPersonId={myPersonId} isMatch={matchIdSet.has(n.data.id)} isActive={activeMatchId === n.data.id} isHighlighted={highlightIds.has(n.data.id)}
+                        onEditBio={isLoggedIn ? () => setEditBioNode({ id: n.data.id, name: n.data.name }) : undefined} />
                     </g>
                     {/* Spouse nodes */}
                     {sc > 0 && n.data.spouses.map((si, i) => {
                       if (!si.spouse) return null;
                       const sOff = spouseOffset(sc, i);
                       return (
-                        <g key={`sp-${si.spouse.id}`} transform={`translate(${pOff + sOff},0)`}>
-                          <NodeBox node={si.spouse} myPersonId={myPersonId} isMatch={matchIdSet.has(si.spouse.id)} isActive={activeMatchId === si.spouse.id} isHighlighted={highlightIds.has(si.spouse.id)} />
+                        <g key={`sp-${si.spouse.id}`} transform={`translate(${pOff + sOff},0)`} onClick={(e) => { e.stopPropagation(); setClickedNodeId(prev => prev === si.spouse!.id ? null : si.spouse!.id); }}>
+                          <NodeBox node={si.spouse} myPersonId={myPersonId} isMatch={matchIdSet.has(si.spouse.id)} isActive={activeMatchId === si.spouse.id} isHighlighted={highlightIds.has(si.spouse.id)}
+                            onEditBio={isLoggedIn ? () => setEditBioNode({ id: si.spouse!.id, name: si.spouse!.name }) : undefined} />
                         </g>
                       );
                     })}
@@ -767,14 +1017,26 @@ function SvgTree({
           </g>
         </svg>
       </Box>
+
+      {/* Edit Bio Dialog */}
+      {editBioNode && (
+        <EditBioDialog
+          personId={editBioNode.id}
+          personName={editBioNode.name}
+          isAdmin={isAdmin}
+          onClose={() => setEditBioNode(null)}
+          onSaved={() => { setEditBioNode(null); onTreeReload(); }}
+        />
+      )}
     </Box>
   );
 }
 
 /* ==================== Node Card ==================== */
 
-function NodeBox({ node, myPersonId, isMatch, isActive, isHighlighted }: {
+function NodeBox({ node, myPersonId, isMatch, isActive, isHighlighted, onEditBio }: {
   node: FamilyNodeDto; myPersonId: number | null; isMatch: boolean; isActive: boolean; isHighlighted?: boolean;
+  onEditBio?: () => void;
 }) {
   const name = node.name || '(Unnamed)';
   const isDeceased = !!node.deceased;
@@ -871,7 +1133,124 @@ function NodeBox({ node, myPersonId, isMatch, isActive, isHighlighted }: {
           </text>
         </g>
       )}
+
+      {/* Edit Bio button — for people without accounts */}
+      {onEditBio && !node.userId && (
+        <g
+          transform={`translate(${meta ? textX - 1 + (meta.label.length * 6.5 + 28) : textX - 1}, ${top + 40})`}
+          style={{ cursor: 'pointer' }}
+          onClick={(e) => { e.stopPropagation(); onEditBio(); }}
+        >
+          <rect width={46} height={16} rx={8} fill="#e3f2fd" stroke="#1976d2" strokeWidth={0.5} />
+          <text x={5} y={11.5} fontSize={9} fill="#1976d2"
+            style={{ fontFamily: 'system-ui' }}>
+            ✏️
+          </text>
+          <text x={18} y={11.5} fontSize={9} fill="#1976d2" fontWeight={700}
+            style={{ fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial' }}>
+            Bio
+          </text>
+        </g>
+      )}
     </g>
+  );
+}
+
+/* ==================== Edit Bio Dialog ==================== */
+
+function EditBioDialog({ personId, personName, isAdmin, onClose, onSaved }: {
+  personId: number; personName: string; isAdmin: boolean; onClose: () => void; onSaved: () => void;
+}) {
+  const [bio, setBio] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [result, setResult] = useState<{ applied: boolean } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const p = await apiFetch<{ bio?: string | null }>(`/api/profile/${personId}`, { method: 'GET' });
+        setBio(p.bio || '');
+      } catch (e) {
+        setError((e as Error)?.message || 'Failed to load bio');
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [personId]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await apiFetch<{ applied: boolean }>(`/api/people/${personId}/bio`, {
+        method: 'PUT',
+        body: { bio: bio.trim() || null },
+      });
+      setResult(res);
+      if (res.applied) {
+        setTimeout(onSaved, 1200);
+      }
+    } catch (e) {
+      setError((e as Error)?.message || 'Failed to save bio');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle sx={{ fontWeight: 700 }}>
+        {isAdmin ? 'Edit Bio' : 'Propose Bio Edit'} — {personName}
+      </DialogTitle>
+      <DialogContent>
+        {loading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+            <CircularProgress size={28} />
+          </Box>
+        ) : result ? (
+          <Alert severity={result.applied ? 'success' : 'info'} sx={{ mt: 1 }}>
+            {result.applied
+              ? 'Bio updated successfully.'
+              : 'Bio change submitted for admin review.'}
+          </Alert>
+        ) : (
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            {error && <Alert severity="error">{error}</Alert>}
+            {!isAdmin && (
+              <Alert severity="info" sx={{ fontSize: '0.85rem' }}>
+                Your edit will be submitted for admin review.
+              </Alert>
+            )}
+            <TextField
+              label="Bio"
+              value={bio}
+              onChange={e => setBio(e.target.value)}
+              multiline
+              rows={4}
+              fullWidth
+              placeholder="Write a short biography…"
+            />
+          </Stack>
+        )}
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button onClick={onClose} disabled={saving}>
+          {result ? 'Close' : 'Cancel'}
+        </Button>
+        {!result && (
+          <Button
+            variant="contained"
+            onClick={handleSave}
+            disabled={saving || loading}
+            sx={{ bgcolor: 'var(--color-primary-600)', '&:hover': { bgcolor: 'var(--color-primary-700)' } }}
+          >
+            {saving ? 'Saving…' : isAdmin ? 'Save' : 'Submit for Review'}
+          </Button>
+        )}
+      </DialogActions>
+    </Dialog>
   );
 }
 
