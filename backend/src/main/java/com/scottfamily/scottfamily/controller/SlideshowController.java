@@ -147,6 +147,8 @@ public class SlideshowController {
         entry.put("order", images.size());
         entry.put("type", request.type != null ? request.type : "image");
         entry.put("duration", request.duration != null && request.duration >= 1 ? request.duration : 6);
+        entry.put("focalX", 50.0);
+        entry.put("focalY", 50.0);
         images.add(entry);
 
         saveImages(images);
@@ -226,6 +228,28 @@ public class SlideshowController {
         int dur = 6;
         if (raw instanceof Number n) dur = Math.max(1, n.intValue());
         images.get(index).put("duration", dur);
+        saveImages(images);
+
+        return ResponseEntity.ok(images);
+    }
+
+    /** Admin-only — update focal point for an item by index. */
+    @PreAuthorize("hasRole('ADMIN')")
+    @PutMapping("/{index}/focal-point")
+    public ResponseEntity<?> updateFocalPoint(@PathVariable int index, @RequestBody Map<String, Object> body) {
+        List<Map<String, Object>> images = loadImages();
+
+        if (index < 0 || index >= images.size()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Invalid index."));
+        }
+
+        Object rawX = body.get("focalX");
+        Object rawY = body.get("focalY");
+        double fx = 50, fy = 50;
+        if (rawX instanceof Number n) fx = Math.max(0, Math.min(100, n.doubleValue()));
+        if (rawY instanceof Number n) fy = Math.max(0, Math.min(100, n.doubleValue()));
+        images.get(index).put("focalX", Math.round(fx * 10.0) / 10.0);
+        images.get(index).put("focalY", Math.round(fy * 10.0) / 10.0);
         saveImages(images);
 
         return ResponseEntity.ok(images);

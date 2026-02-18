@@ -26,6 +26,8 @@ import VolumeOffIcon from '@mui/icons-material/VolumeOff';
 import TimerIcon from '@mui/icons-material/Timer';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
+import CenterFocusStrongIcon from '@mui/icons-material/CenterFocusStrong';
+import { Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
 import { apiFetch } from '../lib/api';
 import { BlockBlobClient } from '@azure/storage-blob';
 
@@ -44,6 +46,8 @@ interface SlideMedia {
   order: number;
   type?: string; // 'image' | 'video'
   duration?: number; // seconds per slide
+  focalX?: number; // 0-100, default 50
+  focalY?: number; // 0-100, default 50
 }
 
 interface HeroSlideshowProps {
@@ -69,6 +73,10 @@ export default function HeroSlideshow({ isAdmin, editMode, family }: HeroSlidesh
   const [editingDuration, setEditingDuration] = useState<number | null>(null);
   const [draftDuration, setDraftDuration] = useState('');
   const videoRefs = useRef<Map<number, HTMLVideoElement>>(new Map());
+  const [focalPickerIndex, setFocalPickerIndex] = useState<number | null>(null);
+  const [draftFocalX, setDraftFocalX] = useState(50);
+  const [draftFocalY, setDraftFocalY] = useState(50);
+  const [savingFocal, setSavingFocal] = useState(false);
 
   const loadSlides = useCallback(async () => {
     try {
@@ -218,6 +226,23 @@ export default function HeroSlideshow({ isAdmin, editMode, family }: HeroSlidesh
     }
   }
 
+  async function handleSaveFocalPoint(index: number) {
+    setSavingFocal(true);
+    try {
+      const data = await apiFetch<SlideMedia[]>(`/api/slideshow/${index}/focal-point`, {
+        method: 'PUT',
+        body: { focalX: draftFocalX, focalY: draftFocalY },
+      });
+      setSlides(data);
+      setFocalPickerIndex(null);
+      setSnack({ msg: 'Focal point saved', severity: 'success' });
+    } catch {
+      setSnack({ msg: 'Failed to save focal point', severity: 'error' });
+    } finally {
+      setSavingFocal(false);
+    }
+  }
+
   async function handleMove(fromIndex: number, direction: 'left' | 'right') {
     const toIndex = direction === 'left' ? fromIndex - 1 : fromIndex + 1;
     if (toIndex < 0 || toIndex >= slides.length) return;
@@ -285,6 +310,7 @@ export default function HeroSlideshow({ isAdmin, editMode, family }: HeroSlidesh
                   width: '100%',
                   height: '100%',
                   objectFit: 'cover',
+                  objectPosition: `${slide.focalX ?? 50}% ${slide.focalY ?? 50}%`,
                   display: 'block',
                 }}
               />
@@ -294,7 +320,7 @@ export default function HeroSlideshow({ isAdmin, editMode, family }: HeroSlidesh
                 alt={slide.caption || `Slide ${i + 1}`}
                 fill
                 sizes="100vw"
-                style={{ objectFit: 'cover' }}
+                style={{ objectFit: 'cover', objectPosition: `${slide.focalX ?? 50}% ${slide.focalY ?? 50}%` }}
                 priority={i === 0}
               />
             )}
@@ -661,6 +687,15 @@ export default function HeroSlideshow({ isAdmin, editMode, family }: HeroSlidesh
                       <TimerIcon sx={{ fontSize: 14 }} />
                     </IconButton>
                   </Tooltip>
+                  <Tooltip title="Set focal point">
+                    <IconButton
+                      size="small"
+                      onClick={() => { setFocalPickerIndex(i); setDraftFocalX(slide.focalX ?? 50); setDraftFocalY(slide.focalY ?? 50); }}
+                      sx={{ width: 28, height: 28 }}
+                    >
+                      <CenterFocusStrongIcon sx={{ fontSize: 14 }} />
+                    </IconButton>
+                  </Tooltip>
                   <Tooltip title={slides.length <= 1 ? 'At least 1 required' : 'Delete'}>
                     <span>
                       <IconButton
@@ -695,6 +730,145 @@ export default function HeroSlideshow({ isAdmin, editMode, family }: HeroSlidesh
             ))}
           </Stack>
         </Box>
+      )}
+
+      {/* Focal point picker dialog */}
+      {focalPickerIndex !== null && slides[focalPickerIndex] && (
+        <Dialog
+          open
+          onClose={() => setFocalPickerIndex(null)}
+          maxWidth="md"
+          fullWidth
+        >
+          <DialogTitle sx={{ pb: 1 }}>
+            Set Focal Point
+            <Typography variant="body2" color="text.secondary">
+              Click on the image where the most important content is. This point will stay visible across all screen sizes.
+            </Typography>
+          </DialogTitle>
+          <DialogContent sx={{ p: 0, position: 'relative', overflow: 'hidden' }}>
+            {isVideoUrl(slides[focalPickerIndex].url, slides[focalPickerIndex].type) ? (
+              <Box
+                sx={{ position: 'relative', width: '100%', cursor: 'crosshair' }}
+                onClick={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  setDraftFocalX(Math.round(((e.clientX - rect.left) / rect.width) * 1000) / 10);
+                  setDraftFocalY(Math.round(((e.clientY - rect.top) / rect.height) * 1000) / 10);
+                }}
+              >
+                <Box
+                  component="video"
+                  src={slides[focalPickerIndex].url}
+                  muted
+                  playsInline
+                  preload="metadata"
+                  sx={{ width: '100%', display: 'block' }}
+                />
+                {/* Focal point marker */}
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    left: `${draftFocalX}%`,
+                    top: `${draftFocalY}%`,
+                    transform: 'translate(-50%, -50%)',
+                    width: 28,
+                    height: 28,
+                    borderRadius: '50%',
+                    border: '3px solid #fff',
+                    boxShadow: '0 0 0 2px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3)',
+                    pointerEvents: 'none',
+                    '&::before': {
+                      content: '""',
+                      position: 'absolute',
+                      inset: 0,
+                      borderRadius: '50%',
+                      border: '2px solid var(--color-primary-500, #1976d2)',
+                    },
+                  }}
+                />
+              </Box>
+            ) : (
+              <Box
+                sx={{ position: 'relative', width: '100%', cursor: 'crosshair' }}
+                onClick={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  setDraftFocalX(Math.round(((e.clientX - rect.left) / rect.width) * 1000) / 10);
+                  setDraftFocalY(Math.round(((e.clientY - rect.top) / rect.height) * 1000) / 10);
+                }}
+              >
+                <Box
+                  component="img"
+                  src={slides[focalPickerIndex].url}
+                  alt="Focal point preview"
+                  sx={{ width: '100%', display: 'block' }}
+                />
+                {/* Focal point marker */}
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    left: `${draftFocalX}%`,
+                    top: `${draftFocalY}%`,
+                    transform: 'translate(-50%, -50%)',
+                    width: 28,
+                    height: 28,
+                    borderRadius: '50%',
+                    border: '3px solid #fff',
+                    boxShadow: '0 0 0 2px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3)',
+                    pointerEvents: 'none',
+                    '&::before': {
+                      content: '""',
+                      position: 'absolute',
+                      inset: 0,
+                      borderRadius: '50%',
+                      border: '2px solid var(--color-primary-500, #1976d2)',
+                    },
+                  }}
+                />
+              </Box>
+            )}
+            {/* Preview strip showing how the crop looks at different viewport ratios */}
+            <Box sx={{ px: 2, py: 1.5, bgcolor: '#f5f5f5', borderTop: '1px solid #eee' }}>
+              <Typography variant="caption" sx={{ fontWeight: 600, mb: 1, display: 'block', color: 'text.secondary' }}>
+                Crop preview (focal point: {draftFocalX}%, {draftFocalY}%)
+              </Typography>
+              <Stack direction="row" spacing={2} justifyContent="center">
+                {/* Mobile preview */}
+                <Box sx={{ textAlign: 'center' }}>
+                  <Typography variant="caption" sx={{ fontSize: '0.6rem', color: 'text.secondary' }}>Mobile</Typography>
+                  <Box sx={{ width: 100, height: 60, overflow: 'hidden', borderRadius: 1, border: '1px solid #ddd', mx: 'auto' }}>
+                    <Box
+                      component="img"
+                      src={slides[focalPickerIndex].url}
+                      sx={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: `${draftFocalX}% ${draftFocalY}%`, display: 'block' }}
+                    />
+                  </Box>
+                </Box>
+                {/* Desktop preview */}
+                <Box sx={{ textAlign: 'center' }}>
+                  <Typography variant="caption" sx={{ fontSize: '0.6rem', color: 'text.secondary' }}>Desktop</Typography>
+                  <Box sx={{ width: 200, height: 80, overflow: 'hidden', borderRadius: 1, border: '1px solid #ddd', mx: 'auto' }}>
+                    <Box
+                      component="img"
+                      src={slides[focalPickerIndex].url}
+                      sx={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: `${draftFocalX}% ${draftFocalY}%`, display: 'block' }}
+                    />
+                  </Box>
+                </Box>
+              </Stack>
+            </Box>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setFocalPickerIndex(null)}>Cancel</Button>
+            <Button
+              variant="contained"
+              disabled={savingFocal}
+              onClick={() => handleSaveFocalPoint(focalPickerIndex)}
+              startIcon={savingFocal ? <CircularProgress size={16} /> : undefined}
+            >
+              Save Focal Point
+            </Button>
+          </DialogActions>
+        </Dialog>
       )}
 
       {/* Snackbar */}
