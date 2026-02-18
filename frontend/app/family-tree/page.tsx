@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
   Box, CircularProgress, Typography, Link as MUILink, IconButton, Tooltip,
   TextField, InputAdornment, Chip, Dialog, DialogTitle, DialogContent,
-  DialogActions, Button, Stack, Autocomplete, MenuItem, Alert,
+  DialogActions, Button, Stack, Autocomplete, MenuItem,
 } from '@mui/material';
 import FullscreenIcon from '@mui/icons-material/Fullscreen';
 import FullscreenExitIcon from '@mui/icons-material/FullscreenExit';
@@ -13,7 +13,6 @@ import CloseIcon from '@mui/icons-material/Close';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
-import EditNoteIcon from '@mui/icons-material/EditNote';
 import CenterFocusStrongIcon from '@mui/icons-material/CenterFocusStrong';
 import NextLink from 'next/link';
 import { apiFetch } from '../lib/api';
@@ -275,13 +274,6 @@ export default function FamilyTreePage() {
           root={root}
           myPersonId={myPersonId}
           fullscreen={fullscreen}
-          isAdmin={isAdmin}
-          isLoggedIn={!!myPersonId}
-          onTreeReload={() => {
-            apiFetch<FamilyNodeDto>('/api/family/tree', { method: 'GET' })
-              .then(setRoot)
-              .catch(console.error);
-          }}
           searchTerm={searchTerm}
           matchIdx={matchIdx}
           searchOpen={searchOpen}
@@ -317,9 +309,6 @@ interface SvgTreeProps {
   root: FamilyNodeDto;
   myPersonId: number | null;
   fullscreen: boolean;
-  isAdmin: boolean;
-  isLoggedIn: boolean;
-  onTreeReload: () => void;
   searchTerm: string;
   matchIdx: number;
   searchOpen: boolean;
@@ -329,7 +318,7 @@ interface SvgTreeProps {
 }
 
 function SvgTree({
-  root, myPersonId, fullscreen, isAdmin, isLoggedIn, onTreeReload,
+  root, myPersonId, fullscreen,
   searchTerm, matchIdx, searchOpen, setSearchTerm, setMatchIdx, setSearchOpen,
 }: SvgTreeProps) {
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -341,7 +330,6 @@ function SvgTree({
   const [highlightIds, setHighlightIds] = useState<Set<number>>(new Set());
   const [hoveredConnector, setHoveredConnector] = useState<string | null>(null);
   const [clickedNodeId, setClickedNodeId] = useState<number | null>(null);
-  const [editBioNode, setEditBioNode] = useState<{ id: number; name: string } | null>(null);
 
   useEffect(() => {
     const handle = () => {
@@ -996,8 +984,7 @@ function SvgTree({
                   <g key={n.idPath} transform={`translate(${n.x},${n.y})`}>
                     {/* Primary person */}
                     <g transform={`translate(${pOff},0)`} onClick={(e) => { e.stopPropagation(); setClickedNodeId(prev => prev === n.data.id ? null : n.data.id); }}>
-                      <NodeBox node={n.data} myPersonId={myPersonId} isMatch={matchIdSet.has(n.data.id)} isActive={activeMatchId === n.data.id} isHighlighted={highlightIds.has(n.data.id)}
-                        onEditBio={isLoggedIn ? () => setEditBioNode({ id: n.data.id, name: n.data.name }) : undefined} />
+                      <NodeBox node={n.data} myPersonId={myPersonId} isMatch={matchIdSet.has(n.data.id)} isActive={activeMatchId === n.data.id} isHighlighted={highlightIds.has(n.data.id)} />
                     </g>
                     {/* Spouse nodes */}
                     {sc > 0 && n.data.spouses.map((si, i) => {
@@ -1005,8 +992,7 @@ function SvgTree({
                       const sOff = spouseOffset(sc, i);
                       return (
                         <g key={`sp-${si.spouse.id}`} transform={`translate(${pOff + sOff},0)`} onClick={(e) => { e.stopPropagation(); setClickedNodeId(prev => prev === si.spouse!.id ? null : si.spouse!.id); }}>
-                          <NodeBox node={si.spouse} myPersonId={myPersonId} isMatch={matchIdSet.has(si.spouse.id)} isActive={activeMatchId === si.spouse.id} isHighlighted={highlightIds.has(si.spouse.id)}
-                            onEditBio={isLoggedIn ? () => setEditBioNode({ id: si.spouse!.id, name: si.spouse!.name }) : undefined} />
+                          <NodeBox node={si.spouse} myPersonId={myPersonId} isMatch={matchIdSet.has(si.spouse.id)} isActive={activeMatchId === si.spouse.id} isHighlighted={highlightIds.has(si.spouse.id)} />
                         </g>
                       );
                     })}
@@ -1017,26 +1003,14 @@ function SvgTree({
           </g>
         </svg>
       </Box>
-
-      {/* Edit Bio Dialog */}
-      {editBioNode && (
-        <EditBioDialog
-          personId={editBioNode.id}
-          personName={editBioNode.name}
-          isAdmin={isAdmin}
-          onClose={() => setEditBioNode(null)}
-          onSaved={() => { setEditBioNode(null); onTreeReload(); }}
-        />
-      )}
     </Box>
   );
 }
 
 /* ==================== Node Card ==================== */
 
-function NodeBox({ node, myPersonId, isMatch, isActive, isHighlighted, onEditBio }: {
+function NodeBox({ node, myPersonId, isMatch, isActive, isHighlighted }: {
   node: FamilyNodeDto; myPersonId: number | null; isMatch: boolean; isActive: boolean; isHighlighted?: boolean;
-  onEditBio?: () => void;
 }) {
   const name = node.name || '(Unnamed)';
   const isDeceased = !!node.deceased;
@@ -1134,123 +1108,7 @@ function NodeBox({ node, myPersonId, isMatch, isActive, isHighlighted, onEditBio
         </g>
       )}
 
-      {/* Edit Bio button — for people without accounts */}
-      {onEditBio && !node.userId && (
-        <g
-          transform={`translate(${meta ? textX - 1 + (meta.label.length * 6.5 + 28) : textX - 1}, ${top + 40})`}
-          style={{ cursor: 'pointer' }}
-          onClick={(e) => { e.stopPropagation(); onEditBio(); }}
-        >
-          <rect width={46} height={16} rx={8} fill="#e3f2fd" stroke="#1976d2" strokeWidth={0.5} />
-          <text x={5} y={11.5} fontSize={9} fill="#1976d2"
-            style={{ fontFamily: 'system-ui' }}>
-            ✏️
-          </text>
-          <text x={18} y={11.5} fontSize={9} fill="#1976d2" fontWeight={700}
-            style={{ fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial' }}>
-            Bio
-          </text>
-        </g>
-      )}
     </g>
-  );
-}
-
-/* ==================== Edit Bio Dialog ==================== */
-
-function EditBioDialog({ personId, personName, isAdmin, onClose, onSaved }: {
-  personId: number; personName: string; isAdmin: boolean; onClose: () => void; onSaved: () => void;
-}) {
-  const [bio, setBio] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [result, setResult] = useState<{ applied: boolean } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const p = await apiFetch<{ bio?: string | null }>(`/api/profile/${personId}`, { method: 'GET' });
-        setBio(p.bio || '');
-      } catch (e) {
-        setError((e as Error)?.message || 'Failed to load bio');
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [personId]);
-
-  const handleSave = async () => {
-    setSaving(true);
-    setError(null);
-    try {
-      const res = await apiFetch<{ applied: boolean }>(`/api/people/${personId}/bio`, {
-        method: 'PUT',
-        body: { bio: bio.trim() || null },
-      });
-      setResult(res);
-      if (res.applied) {
-        setTimeout(onSaved, 1200);
-      }
-    } catch (e) {
-      setError((e as Error)?.message || 'Failed to save bio');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Dialog open onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle sx={{ fontWeight: 700 }}>
-        {isAdmin ? 'Edit Bio' : 'Propose Bio Edit'} — {personName}
-      </DialogTitle>
-      <DialogContent>
-        {loading ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
-            <CircularProgress size={28} />
-          </Box>
-        ) : result ? (
-          <Alert severity={result.applied ? 'success' : 'info'} sx={{ mt: 1 }}>
-            {result.applied
-              ? 'Bio updated successfully.'
-              : 'Bio change submitted for admin review.'}
-          </Alert>
-        ) : (
-          <Stack spacing={2} sx={{ mt: 1 }}>
-            {error && <Alert severity="error">{error}</Alert>}
-            {!isAdmin && (
-              <Alert severity="info" sx={{ fontSize: '0.85rem' }}>
-                Your edit will be submitted for admin review.
-              </Alert>
-            )}
-            <TextField
-              label="Bio"
-              value={bio}
-              onChange={e => setBio(e.target.value)}
-              multiline
-              rows={4}
-              fullWidth
-              placeholder="Write a short biography…"
-            />
-          </Stack>
-        )}
-      </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2 }}>
-        <Button onClick={onClose} disabled={saving}>
-          {result ? 'Close' : 'Cancel'}
-        </Button>
-        {!result && (
-          <Button
-            variant="contained"
-            onClick={handleSave}
-            disabled={saving || loading}
-            sx={{ bgcolor: 'var(--color-primary-600)', '&:hover': { bgcolor: 'var(--color-primary-700)' } }}
-          >
-            {saving ? 'Saving…' : isAdmin ? 'Save' : 'Submit for Review'}
-          </Button>
-        )}
-      </DialogActions>
-    </Dialog>
   );
 }
 
