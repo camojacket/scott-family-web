@@ -89,7 +89,7 @@ export default function ReunionClient({ initialSettings }: { initialSettings?: R
       });
 
     // Admin: load summary + all RSVPs
-    if (admin) {
+    if (isAdmin) {
       loadAdminData();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
