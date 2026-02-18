@@ -124,6 +124,29 @@ public class Controller {
     }
 
     /**
+     * Returns the currently authenticated user's profile from the server session.
+     * This is the canonical source of truth for role/admin status — the frontend
+     * must never rely solely on localStorage, which users can tamper with.
+     */
+    @GetMapping("/auth/me")
+    public ResponseEntity<?> me(HttpServletRequest request) {
+        var auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated() || "anonymousUser".equals(auth.getPrincipal())) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                    "error", "Unauthenticated",
+                    "message", "No active session."
+            ));
+        }
+        String username = auth.getName();
+        return authService.getProfileByUsername(username)
+                .map(p -> ResponseEntity.ok((Object) p))
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                        "error", "NOT_FOUND",
+                        "message", "User not found."
+                )));
+    }
+
+    /**
      * Returns session configuration so the frontend can sync its idle timer.
      * Also resets the session's last-accessed time (counts as activity).
      */

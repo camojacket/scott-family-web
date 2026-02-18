@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useAuth } from '../lib/useAuth';
 import {
   Box, CircularProgress, Typography, Link as MUILink, IconButton, Tooltip,
   TextField, InputAdornment, Chip, Dialog, DialogTitle, DialogContent,
@@ -148,7 +149,7 @@ export default function FamilyTreePage() {
   const [loading, setLoading] = useState(true);
   const [myPersonId, setMyPersonId] = useState<number | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const { isAdmin } = useAuth();
   const [addPersonOpen, setAddPersonOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -177,8 +178,6 @@ export default function FamilyTreePage() {
       if (raw) {
         const p = JSON.parse(raw);
         if (p?.personId) setMyPersonId(p.personId);
-        const role: string = p?.userRole || '';
-        setIsAdmin(role === 'ROLE_ADMIN' || role === 'ADMIN');
       }
     } catch { /* ignore */ }
   }, []);

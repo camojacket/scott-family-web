@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '../../lib/useAuth';
 import {
   Alert,
   Box,
@@ -63,6 +65,16 @@ const durationLabels: Record<BanDuration, string> = {
 };
 
 export default function AdminUsersPage() {
+  const router = useRouter();
+  const { isAdmin, adminLoading } = useAuth();
+
+  // Redirect non-admins once server verification completes
+  useEffect(() => {
+    if (!adminLoading && !isAdmin) {
+      router.replace('/');
+    }
+  }, [adminLoading, isAdmin, router]);
+
   const [tab, setTab] = useState(0);
   const [users, setUsers] = useState<AdminUserItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -246,7 +258,13 @@ export default function AdminUsersPage() {
   }
 
   // ─── Render ───────────────────────────────────────
-
+  if (adminLoading || !isAdmin) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
   return (
     <Box sx={{ maxWidth: 1200, mx: 'auto', py: 4, px: 2 }}>
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 3 }}>

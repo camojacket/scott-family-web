@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '../lib/useAuth';
 import {
   Alert,
   Box,
@@ -79,6 +81,16 @@ type PersonRequestItem = {
 const PAGE_SIZES = [10, 50, 100];
 
 export default function AdminPage() {
+  const router = useRouter();
+  const { isAdmin, adminLoading } = useAuth();
+
+  // Redirect non-admins once server verification completes
+  useEffect(() => {
+    if (!adminLoading && !isAdmin) {
+      router.replace('/');
+    }
+  }, [adminLoading, isAdmin, router]);
+
   const [tab, setTab] = useState(0);
 
   // -------- Pending signups state --------
@@ -485,6 +497,15 @@ export default function AdminPage() {
     } finally {
       setLoadingPeople(false);
     }
+  }
+
+  // Show loading while verifying admin status, or nothing if not admin (redirect in progress)
+  if (adminLoading || !isAdmin) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}>
+        <CircularProgress />
+      </Box>
+    );
   }
 
   return (

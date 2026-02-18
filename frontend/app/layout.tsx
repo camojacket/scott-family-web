@@ -6,6 +6,7 @@ import './init';
 import React from 'react';
 import Navigation from './components/Navigation';
 import { FamilyNameProvider } from './lib/FamilyNameContext';
+import { AuthProvider } from './lib/useAuth';
 import { CartProvider } from './lib/CartContext';
 import TitleSync from './components/TitleSync';
 
@@ -59,10 +60,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <FamilyNameProvider>
-          <TitleSync />
-          <CartProvider>
-            <Navigation>{children}</Navigation>
-          </CartProvider>
+          <AuthProvider>
+            <TitleSync />
+            <CartProvider>
+              <Navigation>{children}</Navigation>
+            </CartProvider>
+          </AuthProvider>
         </FamilyNameProvider>
       </body>
     </html>

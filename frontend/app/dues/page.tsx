@@ -31,6 +31,7 @@ import GroupIcon from '@mui/icons-material/Group';
 import SaveIcon from '@mui/icons-material/Save';
 import SettingsIcon from '@mui/icons-material/Settings';
 import { apiFetch } from '../lib/api';
+import { useAuth } from '../lib/useAuth';
 import { useFamilyName } from '../lib/FamilyNameContext';
 import PersonAutocomplete from '../components/PersonAutocomplete';
 import type { DuesPageDto, DuesBatchDto, DuePeriodResponse, DuePeriodDto, PricingTierDto } from '../lib/types';
@@ -58,7 +59,7 @@ export default function DuesPage() {
   const pollingRef = useRef(false);
 
   // ── Admin: due period config ──
-  const [isAdmin, setIsAdmin] = useState(false);
+  const { isAdmin } = useAuth();
   const [periodData, setPeriodData] = useState<DuePeriodResponse | null>(null);
   const [periodYear, setPeriodYear] = useState('');
   const [periodStart, setPeriodStart] = useState('');
@@ -123,12 +124,10 @@ export default function DuesPage() {
     }
   }, [pageData?.reunionYear]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Detect admin role & own personId
+  // Detect own personId
   useEffect(() => {
     try {
       const p = JSON.parse(localStorage.getItem('profile') || '{}');
-      const role: string = p?.userRole || '';
-      setIsAdmin(role === 'ROLE_ADMIN' || role === 'ADMIN');
       if (p?.personId) setMyPersonId(p.personId);
     } catch { /* ignore */ }
   }, []);

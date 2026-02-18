@@ -7,8 +7,9 @@ import CelebrationIcon from '@mui/icons-material/Celebration';
 import HistoryIcon from '@mui/icons-material/History';
 import PhotoLibraryIcon from '@mui/icons-material/PhotoLibrary';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useFamilyName } from './lib/FamilyNameContext';
+import { useAuth } from './lib/useAuth';
 import HeroSlideshow from './components/HeroSlideshow';
 
 export default function Home() {
@@ -41,16 +42,8 @@ export default function Home() {
     },
   ];
 
-  const [isAdmin, setIsAdmin] = useState(false);
+  const { isAdmin } = useAuth();
   const [editMode, setEditMode] = useState(false);
-
-  useEffect(() => {
-    try {
-      const p = JSON.parse(localStorage.getItem('profile') || '{}');
-      const role: string = p?.userRole || '';
-      setIsAdmin(role === 'ROLE_ADMIN' || role === 'ADMIN');
-    } catch { /* ignore */ }
-  }, []);
 
   return (
     <Box>

@@ -19,8 +19,8 @@ import ImageIcon from '@mui/icons-material/Image';
 import PersonIcon from '@mui/icons-material/Person';
 import LabelIcon from '@mui/icons-material/Label';
 import { apiFetch } from '../../lib/api';
+import { useAuth } from '../../lib/useAuth';
 import type { ObituaryDto } from '../../lib/types';
-
 
 type PersonHit = { personId: number; displayName: string };
 
@@ -79,7 +79,7 @@ export default function ObituariesPage({ initialData }: { initialData?: Obituary
   const [obituaries, setObituaries] = useState<ObituaryDto[]>(initialData ?? []);
   const [loading, setLoading] = useState(!initialData);
   const [error, setError] = useState('');
-  const [isAdmin, setIsAdmin] = useState(false);
+  const { isAdmin } = useAuth();
   const [search, setSearch] = useState('');
 
   // Create dialog
@@ -112,17 +112,6 @@ export default function ObituariesPage({ initialData }: { initialData?: Obituary
   const [personInput, setPersonInput] = useState('');
   const [personOptions, setPersonOptions] = useState<PersonHit[]>([]);
   const [personLoading, setPersonLoading] = useState(false);
-
-  useEffect(() => {
-    const raw = localStorage.getItem('profile');
-    if (raw) {
-      try {
-        const p = JSON.parse(raw);
-        const role: string = p?.userRole || '';
-        setIsAdmin(role === 'ROLE_ADMIN' || role === 'ADMIN');
-      } catch { /* ignore */ }
-    }
-  }, []);
 
   const loadObituaries = useCallback(async () => {
     try {

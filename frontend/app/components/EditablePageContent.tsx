@@ -1,14 +1,14 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { Box, Button } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
 import BlockRendererList from '../components/BlockRenderer';
 import { apiFetch } from '../lib/api';
 import { useFamilyName } from '../lib/FamilyNameContext';
+import { useAuth } from '../lib/useAuth';
 import type { ContentBlock } from '../lib/pageContentTypes';
-import type { ProfileDto } from '../lib/types';
 
 const BlockEditor = dynamic(() => import('../components/BlockEditor'), { ssr: false });
 
@@ -24,10 +24,7 @@ interface Props {
 export default function EditablePageContent({ pageKey, initialBlocks }: Props) {
   const { full } = useFamilyName();
 
-  // ── Auth state ──
-  const [isAdmin, setIsAdmin] = useState(false);
-
-  // ── Content state ──
+  const { isAdmin } = useAuth();
   const [blocks, setBlocks] = useState<ContentBlock[]>(initialBlocks);
 
   // ── Edit mode state ──
@@ -35,20 +32,6 @@ export default function EditablePageContent({ pageKey, initialBlocks }: Props) {
   const [editBlocks, setEditBlocks] = useState<ContentBlock[]>([]);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-
-  // ── Load admin status ──
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem('profile');
-      if (raw) {
-        const p: ProfileDto = JSON.parse(raw);
-        const role = p.userRole;
-        setIsAdmin(role === 'ROLE_ADMIN' || role === 'ADMIN');
-      }
-    } catch {
-      /* ignore */
-    }
-  }, []);
 
   // ── Enter edit mode ──
   const startEditing = () => {

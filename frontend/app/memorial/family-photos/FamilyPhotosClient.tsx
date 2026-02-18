@@ -61,6 +61,7 @@ import ImageIcon from '@mui/icons-material/Image';
 import VideocamIcon from '@mui/icons-material/Videocam';
 import TimerIcon from '@mui/icons-material/Timer';
 import { apiFetch } from '../../lib/api';
+import { useAuth } from '../../lib/useAuth';
 import { BlockBlobClient } from '@azure/storage-blob';
 import type {
   GalleryImage,
@@ -163,8 +164,7 @@ interface PendingUpload {
 // ─── Component ──────────────────────────────────────────────
 
 export default function FamilyPhotosClient({ initialImages }: { initialImages?: GalleryImage[] }) {
-  // Auth
-  const [isAdmin, setIsAdmin] = useState(false);
+  const { isAdmin } = useAuth();
 
   // Gallery data
   const [images, setImages] = useState<GalleryImage[]>(initialImages ?? []);
@@ -229,19 +229,6 @@ export default function FamilyPhotosClient({ initialImages }: { initialImages?: 
   // File input refs
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
-
-  // ── Auth check ──────────────────────────────────────────────
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem('profile');
-      if (raw) {
-        const p = JSON.parse(raw);
-        const role = p?.userRole;
-        setIsAdmin(role === 'ROLE_ADMIN' || role === 'ADMIN');
-      }
-    } catch { /* ignore */ }
-  }, []);
 
   // ── Load gallery ────────────────────────────────────────────
 

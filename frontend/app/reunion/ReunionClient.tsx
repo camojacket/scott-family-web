@@ -20,6 +20,7 @@ import PeopleIcon from '@mui/icons-material/People';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { API_BASE, apiFetch } from '../lib/api';
 import { useFamilyName } from '../lib/FamilyNameContext';
+import { useAuth } from '../lib/useAuth';
 import type { RsvpDto, RsvpSummary } from '../lib/types';
 
 export interface ReunionSettings {
@@ -35,7 +36,7 @@ export default function ReunionClient({ initialSettings }: { initialSettings?: R
   const [location, setLocation] = useState(initialSettings?.reunion_location ?? 'Ludowici, GA \u2014 The Broadlevel');
   const [hostedBy, setHostedBy] = useState(initialSettings?.reunion_hosted_by ?? 'Mr. Marcus Scott IV Family');
   const [infoPacketUrl, setInfoPacketUrl] = useState(initialSettings?.reunion_info_packet_url ?? 'https://scottphillipsfamily.wordpress.com/wp-content/uploads/2022/12/scott-phillips-2023.pdf');
-  const [isAdmin, setIsAdmin] = useState(false);
+  const { isAdmin } = useAuth();
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [snack, setSnack] = useState<{ msg: string; severity: 'success' | 'error' } | null>(null);
@@ -69,14 +70,6 @@ export default function ReunionClient({ initialSettings }: { initialSettings?: R
         })
         .catch(() => {});
     }
-
-    let admin = false;
-    try {
-      const p = JSON.parse(localStorage.getItem('profile') || '{}');
-      const role: string = p?.userRole || '';
-      admin = role === 'ROLE_ADMIN' || role === 'ADMIN';
-      setIsAdmin(admin);
-    } catch { /* ignore */ }
 
     // Load user RSVP
     apiFetch<RsvpDto>('/api/rsvp')

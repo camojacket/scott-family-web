@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { apiFetch, uploadAnonymous } from '../../lib/api';
+import { useAuth } from '../../lib/useAuth';
 import PersonAutocomplete from '../../components/PersonAutocomplete';
 import CdnAvatar from '../../components/CdnAvatar';
 import Image from '../../components/CdnImage';
@@ -53,16 +54,6 @@ type Profile = {
   email?: string;
 };
 
-function getIsAdmin(): boolean {
-  try {
-    const raw = localStorage.getItem('profile');
-    if (!raw) return false;
-    const p = JSON.parse(raw);
-    const role = p?.userRole || '';
-    return role === 'ROLE_ADMIN' || role === 'ADMIN';
-  } catch { return false; }
-}
-
 function getIsLoggedIn(): boolean {
   return !!localStorage.getItem('profile');
 }
@@ -74,7 +65,7 @@ export default function ProfilePage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const { isAdmin } = useAuth();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -130,7 +121,6 @@ export default function ProfilePage() {
   }, [personId]);
 
   useEffect(() => {
-    setIsAdmin(getIsAdmin());
     setIsLoggedIn(getIsLoggedIn());
     loadProfile();
   }, [loadProfile]);

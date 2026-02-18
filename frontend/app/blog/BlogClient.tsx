@@ -35,6 +35,7 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import NextLink from 'next/link';
 import { apiFetch } from '../lib/api';
 import { useFamilyName } from '../lib/FamilyNameContext';
+import { useAuth } from '../lib/useAuth';
 import { sanitizeHtml } from '../lib/sanitize';
 import type { BlogPost, CommentDto, ProfileDto } from '../lib/types';
 
@@ -49,7 +50,7 @@ export default function BlogClient({ initialPosts }: { initialPosts?: BlogPost[]
   // ── User state ──
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   const [currentPersonId, setCurrentPersonId] = useState<number | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const { isAdmin } = useAuth();
 
   // ── Post state ──
   const [posts, setPosts] = useState<BlogPost[]>(initialPosts ?? []);
@@ -70,7 +71,7 @@ export default function BlogClient({ initialPosts }: { initialPosts?: BlogPost[]
   const [commentSort, setCommentSort] = useState<Record<number, CommentSort>>({});
   const [commentLoading, setCommentLoading] = useState<Record<number, boolean>>({});
 
-  // ── Load current user from localStorage ──
+  // ── Load current user from localStorage (non-admin fields) ──
   useEffect(() => {
     try {
       const raw = localStorage.getItem('profile');
@@ -78,8 +79,6 @@ export default function BlogClient({ initialPosts }: { initialPosts?: BlogPost[]
         const p: ProfileDto = JSON.parse(raw);
         setCurrentUserId(p.id);
         setCurrentPersonId(p.personId ?? null);
-        const role = p.userRole;
-        setIsAdmin(role === 'ROLE_ADMIN' || role === 'ADMIN');
       }
     } catch { /* ignore */ }
   }, []);

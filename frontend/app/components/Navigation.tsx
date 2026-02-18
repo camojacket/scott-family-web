@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import React, { useEffect, useState } from 'react';
+import { useAuth } from '../lib/useAuth';
 import {
   AppBar,
   Toolbar,
@@ -102,8 +103,7 @@ export default function Navigation({ children }: { children: React.ReactNode }) 
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  // Auth/UI state
-  const [isAdmin, setIsAdmin] = useState(false);
+  const { isAdmin } = useAuth();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
 
@@ -116,19 +116,13 @@ export default function Navigation({ children }: { children: React.ReactNode }) 
         const raw = localStorage.getItem('profile');
         if (!raw) {
           setIsLoggedIn(false);
-          setIsAdmin(false);
           setAuthChecked(true);
           return;
         }
-        const p = JSON.parse(raw);
-        const role: string | undefined = p?.userRole;
-        const admin = role === 'ROLE_ADMIN' || role === 'ADMIN';
         setIsLoggedIn(true);
-        setIsAdmin(!!admin);
         setAuthChecked(true);
       } catch {
         setIsLoggedIn(false);
-        setIsAdmin(false);
         setAuthChecked(true);
       }
     };

@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useEffect, useState, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '../../lib/useAuth';
 import {
   Box,
   Typography,
@@ -48,6 +50,16 @@ type SortField = 'name' | 'dob' | 'status';
 type SortDir = 'asc' | 'desc';
 
 export default function AdminDuesPage() {
+  const router = useRouter();
+  const { isAdmin, adminLoading } = useAuth();
+
+  // Redirect non-admins once server verification completes
+  useEffect(() => {
+    if (!adminLoading && !isAdmin) {
+      router.replace('/');
+    }
+  }, [adminLoading, isAdmin, router]);
+
   const [status, setStatus] = useState<DuesStatusDto[]>([]);
   const [summary, setSummary] = useState<DuesSummaryDto | null>(null);
   const [loading, setLoading] = useState(true);
@@ -348,6 +360,14 @@ export default function AdminDuesPage() {
       setRecording(false);
     }
   };
+
+  if (adminLoading || !isAdmin) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
 
   return (
     <Box sx={{ maxWidth: 900, mx: 'auto', py: { xs: 3, sm: 5 } }}>

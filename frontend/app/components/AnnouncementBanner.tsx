@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useCallback } from 'react';
+import { useAuth } from '../lib/useAuth';
 import {
   Box,
   Typography,
@@ -44,7 +45,7 @@ export default function AnnouncementBanner() {
   const [dismissed, setDismissedState] = useState<number[]>([]);
   const [selectedAnn, setSelectedAnn] = useState<AnnouncementDto | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const { isAdmin } = useAuth();
 
   // Admin management state
   const [adminOpen, setAdminOpen] = useState(false);
@@ -57,14 +58,6 @@ export default function AnnouncementBanner() {
 
   useEffect(() => {
     setDismissedState(getDismissed());
-    try {
-      const raw = localStorage.getItem('profile');
-      if (raw) {
-        const p = JSON.parse(raw);
-        const role = p.userRole;
-        setIsAdmin(role === 'ROLE_ADMIN' || role === 'ADMIN');
-      }
-    } catch { /* ignore */ }
   }, []);
 
   const loadActive = useCallback(async () => {

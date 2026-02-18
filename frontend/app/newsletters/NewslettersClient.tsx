@@ -15,6 +15,7 @@ import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import { useFamilyName } from '../lib/FamilyNameContext';
 import { apiFetch } from '../lib/api';
+import { useAuth } from '../lib/useAuth';
 import type { NewsletterDto } from '../lib/types';
 
 type SortDir = 'asc' | 'desc';
@@ -24,7 +25,7 @@ export default function NewslettersClient({ initialData }: { initialData?: Newsl
   const [newsletters, setNewsletters] = useState<NewsletterDto[]>(initialData ?? []);
   const [loading, setLoading] = useState(!initialData);
   const [error, setError] = useState('');
-  const [isAdmin, setIsAdmin] = useState(false);
+  const { isAdmin } = useAuth();
 
   // Sort state
   const [sortDateDir, setSortDateDir] = useState<SortDir>('desc');
@@ -47,18 +48,6 @@ export default function NewslettersClient({ initialData }: { initialData?: Newsl
   // Delete confirm
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
-
-  // Check admin role
-  useEffect(() => {
-    const raw = localStorage.getItem('profile');
-    if (raw) {
-      try {
-        const p = JSON.parse(raw);
-        const role: string = p?.userRole || '';
-        setIsAdmin(role === 'ROLE_ADMIN' || role === 'ADMIN');
-      } catch { /* ignore */ }
-    }
-  }, []);
 
   // Sort function
   const sortNewsletters = useCallback((list: NewsletterDto[]) => {

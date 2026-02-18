@@ -280,6 +280,18 @@ public class AuthService {
     }
 
 
+    /**
+     * Look up a user by username and return their ProfileDto.
+     * Used by /api/auth/me to return server-validated profile data.
+     */
+    public Optional<DTOs.ProfileDto> getProfileByUsername(String username) {
+        UsersRecord user = dsl.selectFrom(USERS)
+                .where(USERS.USERNAME.eq(username))
+                .fetchOne();
+        if (user == null) return Optional.empty();
+        return Optional.of(toProfile(user));
+    }
+
     /* ========================== DTO MAPPING ========================== */
 
     /**

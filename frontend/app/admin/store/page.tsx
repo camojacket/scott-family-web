@@ -1,7 +1,9 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import Image from '../../components/CdnImage';
+import { useAuth } from '../../lib/useAuth';
 import {
   Box,
   Typography,
@@ -49,6 +51,16 @@ import type { ProductDto, OrderDto } from '../../lib/types';
 const SIZES = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL'];
 
 export default function AdminStorePage() {
+  const router = useRouter();
+  const { isAdmin, adminLoading } = useAuth();
+
+  // Redirect non-admins once server verification completes
+  useEffect(() => {
+    if (!adminLoading && !isAdmin) {
+      router.replace('/');
+    }
+  }, [adminLoading, isAdmin, router]);
+
   const [tab, setTab] = useState(0);
   const [products, setProducts] = useState<ProductDto[]>([]);
   const [orders, setOrders] = useState<OrderDto[]>([]);
@@ -307,7 +319,7 @@ export default function AdminStorePage() {
     }
   };
 
-  if (loading) {
+  if (adminLoading || !isAdmin || loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}>
         <CircularProgress />

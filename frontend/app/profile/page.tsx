@@ -22,6 +22,7 @@ import LockResetIcon from '@mui/icons-material/LockReset';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
 import { apiFetch, uploadForUser } from '../lib/api';
+import { useAuth } from '../lib/useAuth';
 import PersonAutocomplete from '../components/PersonAutocomplete';
 import CdnAvatar from '../components/CdnAvatar';
 import Image from '../components/CdnImage';
@@ -62,6 +63,7 @@ type MyPendingChangesResponse = { profileChanges: MyPendingChange[]; pendingPeop
 
 export default function MeProfilePage() {
   const [me, setMe] = useState<ProfileDto | null>(null);
+  const { isAdmin: serverIsAdmin } = useAuth();
   const [msg, setMsg] = useState<{ type: 'success'|'error'|'info'; text: string }|null>(null);
   const [editing, setEditing] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -184,8 +186,7 @@ export default function MeProfilePage() {
   }
 
   async function handleAddPerson(firstName: string, lastName: string, dob?: string, dod?: string): Promise<number | null> {
-    const isAdmin = me?.userRole?.includes('ADMIN');
-    if (isAdmin) {
+    if (serverIsAdmin) {
       // Admin: create person directly
       const res = await apiFetch<{ personId: number }>('/api/people', {
         method: 'POST',
@@ -380,8 +381,8 @@ export default function MeProfilePage() {
               size="small"
               sx={{
                 mt: 1,
-                bgcolor: me.userRole.includes('ADMIN') ? 'var(--color-accent-400)' : 'var(--color-primary-50)',
-                color: me.userRole.includes('ADMIN') ? 'var(--color-gray-900)' : 'var(--color-primary-700)',
+                bgcolor: serverIsAdmin ? 'var(--color-accent-400)' : 'var(--color-primary-50)',
+                color: serverIsAdmin ? 'var(--color-gray-900)' : 'var(--color-primary-700)',
                 fontWeight: 600,
                 fontSize: '0.72rem',
               }}
@@ -682,7 +683,7 @@ export default function MeProfilePage() {
               </Stack>
             )}
 
-            {me.personId && me.userRole?.includes('ADMIN') ? (
+            {me.personId && serverIsAdmin ? (
               <>
 
                 {childSlots.map((slot, idx) => (
