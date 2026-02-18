@@ -101,6 +101,7 @@ function spouseOffset(spouseCount: number, index: number): number {
 }
 
 /** Person is always centered at d3 node x */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function personOffset(_spouseCount: number): number {
   return 0;
 }
