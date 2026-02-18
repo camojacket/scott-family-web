@@ -37,6 +37,7 @@ public class GalleryService {
     private static final Field<LocalDate>        F_IMAGE_DATE   = DSL.field("IMAGE_DATE",   SQLDataType.LOCALDATE);
     private static final Field<Long>             F_UPLOADED_BY  = DSL.field("UPLOADED_BY",  SQLDataType.BIGINT);
     private static final Field<OffsetDateTime>   F_UPLOADED_AT  = DSL.field("UPLOADED_AT",  SQLDataType.OFFSETDATETIME);
+    private static final Field<String>           F_YOUTUBE_URL  = DSL.field("YOUTUBE_URL",  SQLDataType.NVARCHAR(1000));
 
     private final DSLContext dsl;
     private final BlobContainerClient container;
@@ -88,6 +89,67 @@ public class GalleryService {
     }
 
     /**
+     * Register a YouTube video link in the gallery.
+     * No file upload — just stores the URL, caption, and date.
+     */
+    @Transactional
+    public GalleryImageDto registerYouTubeLink(
+            String youtubeUrl, String caption, LocalDate imageDate, Long uploadedBy
+    ) {
+        String videoId = extractYouTubeVideoId(youtubeUrl);
+        if (videoId == null) {
+            throw new IllegalArgumentException("Invalid YouTube URL: " + youtubeUrl);
+        }
+
+        String thumbnailUrl = "https://img.youtube.com/vi/" + videoId + "/hqdefault.jpg";
+        String fileName = "YouTube: " + (caption != null && !caption.isBlank() ? caption : videoId);
+
+        Record inserted = dsl.insertInto(GALLERY_IMAGES)
+                .set(F_BLOB_KEY, "youtube/" + videoId)
+                .set(F_CDN_URL, thumbnailUrl)
+                .set(F_FILE_NAME, fileName)
+                .set(F_CONTENT_TYPE, "video/youtube")
+                .set(F_SIZE_BYTES, 0L)
+                .set(F_CAPTION, caption)
+                .set(F_IMAGE_DATE, imageDate)
+                .set(F_UPLOADED_BY, uploadedBy)
+                .set(F_YOUTUBE_URL, youtubeUrl)
+                .returningResult(F_ID, F_UPLOADED_AT)
+                .fetchOne();
+
+        Long id = inserted != null ? inserted.get(F_ID) : null;
+        OffsetDateTime uploadedAt = inserted != null ? inserted.get(F_UPLOADED_AT) : OffsetDateTime.now();
+
+        return GalleryImageDto.builder()
+                .id(id)
+                .blobKey("youtube/" + videoId)
+                .cdnUrl(thumbnailUrl)
+                .fileName(fileName)
+                .contentType("video/youtube")
+                .sizeBytes(0L)
+                .caption(caption)
+                .imageDate(imageDate)
+                .uploadedBy(uploadedBy)
+                .uploadedAt(uploadedAt)
+                .youtubeUrl(youtubeUrl)
+                .build();
+    }
+
+    /**
+     * Extract the video ID from various YouTube URL formats.
+     * Supports: youtube.com, www.youtube.com, m.youtube.com, youtu.be
+     * Paths: /watch?v=ID, /embed/ID, /shorts/ID, youtu.be/ID
+     */
+    private static String extractYouTubeVideoId(String url) {
+        if (url == null || url.isBlank()) return null;
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile(
+                "(?:(?:www|m)\\.)?(?:youtube\\.com/(?:watch\\?.*v=|embed/|shorts/)|youtu\\.be/)([a-zA-Z0-9_-]{11})",
+                java.util.regex.Pattern.CASE_INSENSITIVE
+        ).matcher(url);
+        return m.find() ? m.group(1) : null;
+    }
+
+    /**
      * List gallery images, ordered by imageDate desc (nulls last), then uploadedAt desc.
      * Includes tags for each image. Supports pagination via offset/limit.
      */
@@ -115,6 +177,7 @@ public class GalleryService {
                         .imageDate(toLocalDate(r.get("IMAGE_DATE")))
                         .uploadedBy(r.get(F_UPLOADED_BY))
                         .uploadedAt(r.get(F_UPLOADED_AT))
+                        .youtubeUrl(r.get(F_YOUTUBE_URL))
                         .tags(allTags.getOrDefault(id, new ArrayList<>()))
                         .build();
                 });
@@ -159,6 +222,7 @@ public class GalleryService {
                         .imageDate(toLocalDate(r.get("IMAGE_DATE")))
                         .uploadedBy(r.get(F_UPLOADED_BY))
                         .uploadedAt(r.get(F_UPLOADED_AT))
+                        .youtubeUrl(r.get(F_YOUTUBE_URL))
                         .tags(tagMap.getOrDefault(id, new ArrayList<>()))
                         .build();
                 });
@@ -194,12 +258,14 @@ public class GalleryService {
 
         String blobKey = row.get(F_BLOB_KEY);
 
-        // Delete from blob storage
-        try {
-            container.getBlobClient(blobKey).deleteIfExists();
-        } catch (Exception e) {
-            // Log but don't fail — still remove from DB
-            System.err.println("Warning: failed to delete blob " + blobKey + ": " + e.getMessage());
+        // Only delete from blob storage if it's not a YouTube entry
+        if (blobKey != null && !blobKey.startsWith("youtube/")) {
+            try {
+                container.getBlobClient(blobKey).deleteIfExists();
+            } catch (Exception e) {
+                // Log but don't fail — still remove from DB
+                System.err.println("Warning: failed to delete blob " + blobKey + ": " + e.getMessage());
+            }
         }
 
         dsl.deleteFrom(GALLERY_IMAGES)
@@ -221,13 +287,15 @@ public class GalleryService {
                 .where(F_ID.in(imageIds))
                 .fetch();
 
-        // Delete blobs (best-effort)
+        // Delete blobs (best-effort) — skip YouTube entries
         for (var row : rows) {
             String blobKey = row.get(F_BLOB_KEY);
-            try {
-                container.getBlobClient(blobKey).deleteIfExists();
-            } catch (Exception e) {
-                System.err.println("Warning: failed to delete blob " + blobKey + ": " + e.getMessage());
+            if (blobKey != null && !blobKey.startsWith("youtube/")) {
+                try {
+                    container.getBlobClient(blobKey).deleteIfExists();
+                } catch (Exception e) {
+                    System.err.println("Warning: failed to delete blob " + blobKey + ": " + e.getMessage());
+                }
             }
         }
 
@@ -391,6 +459,7 @@ public class GalleryService {
         private LocalDate imageDate;
         private Long uploadedBy;
         private OffsetDateTime uploadedAt;
+        private String youtubeUrl;
         @Builder.Default
         private List<ImageTagDto> tags = new ArrayList<>();
     }

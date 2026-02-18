@@ -32,6 +32,7 @@ import com.scottfamily.scottfamily.service.UserHelper;
  *
  * Admin only:
  *   POST /api/gallery/images/register     — register metadata after direct-to-Azure upload
+ *   POST /api/gallery/images/youtube      — register a YouTube video link
  *   PUT  /api/gallery/images/{id}         — update caption / date
  *   DELETE /api/gallery/images/{id}       — delete an image
  */
@@ -105,7 +106,72 @@ public class GalleryController {
     }
 
     // ── Update image metadata (admin only) ──────────────────────────────────────
+    // ── Register YouTube link (admin only) ────────────────────────────────────────
 
+    @PostMapping("/images/youtube")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<?> registerYouTubeLink(
+            @RequestBody YouTubeLinkRequest request,
+            Authentication auth
+    ) {
+        Long uploaderId = userHelper.resolveUserId(auth.getName());
+        if (uploaderId == null) {
+            return ResponseEntity.status(403).body(Map.of("error", "Could not resolve uploader"));
+        }
+
+        try {
+            LocalDate imageDate = (request.imageDate != null && !request.imageDate.isBlank())
+                    ? LocalDate.parse(request.imageDate) : null;
+
+            GalleryImageDto dto = galleryService.registerYouTubeLink(
+                    request.youtubeUrl, request.caption, imageDate, uploaderId
+            );
+            return ResponseEntity.ok(dto);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    /**
+     * Bulk-register YouTube video links (admin only).
+     */
+    @PostMapping("/images/youtube/batch")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<?> registerYouTubeLinks(
+            @RequestBody YouTubeBatchRequest request,
+            Authentication auth
+    ) {
+        Long uploaderId = userHelper.resolveUserId(auth.getName());
+        if (uploaderId == null) {
+            return ResponseEntity.status(403).body(Map.of("error", "Could not resolve uploader"));
+        }
+        if (request.videos == null || request.videos.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "No videos provided"));
+        }
+
+        List<GalleryImageDto> results = new ArrayList<>();
+        List<String> errors = new ArrayList<>();
+
+        for (YouTubeLinkRequest video : request.videos) {
+            try {
+                LocalDate imageDate = (video.imageDate != null && !video.imageDate.isBlank())
+                        ? LocalDate.parse(video.imageDate) : null;
+
+                GalleryImageDto dto = galleryService.registerYouTubeLink(
+                        video.youtubeUrl, video.caption, imageDate, uploaderId
+                );
+                results.add(dto);
+            } catch (Exception e) {
+                errors.add(video.youtubeUrl + ": " + e.getMessage());
+            }
+        }
+
+        if (!errors.isEmpty() && results.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("errors", errors));
+        }
+
+        return ResponseEntity.ok(Map.of("uploaded", results, "errors", errors));
+    }
     @PutMapping("/images/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<?> updateImage(
@@ -234,5 +300,18 @@ public class GalleryController {
             public String caption;
             public String imageDate; // ISO yyyy-MM-dd or null
         }
+    }
+    // ── Request body for POST /images/youtube ───────────────────────────────────────
+
+    public static class YouTubeLinkRequest {
+        public String youtubeUrl;
+        public String caption;
+        public String imageDate; // ISO yyyy-MM-dd or null
+    }
+
+    // ── Request body for POST /images/youtube/batch ──────────────────────────────
+
+    public static class YouTubeBatchRequest {
+        public List<YouTubeLinkRequest> videos;
     }
 }

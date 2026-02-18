@@ -416,6 +416,7 @@ export interface GalleryImage {
   imageDate?: string | null; // ISO yyyy-MM-dd
   uploadedBy: number;
   uploadedAt: string;        // ISO datetime
+  youtubeUrl?: string | null;
   tags?: ImageTag[];
 }
 
@@ -451,6 +452,23 @@ export interface GallerySasResponse {
 /** Request body for POST /api/gallery/images/delete-batch */
 export interface GalleryDeleteBatchRequest {
   ids: number[];
+}
+
+/** Request body for POST /api/gallery/images/youtube */
+export interface YouTubeLinkRequest {
+  youtubeUrl: string;
+  caption?: string | null;
+  imageDate?: string | null;
+}
+
+/** Request body for POST /api/gallery/images/youtube/batch */
+export interface YouTubeBatchRequest {
+  videos: YouTubeLinkRequest[];
+}
+
+export interface YouTubeBatchResponse {
+  uploaded: GalleryImage[];
+  errors: string[];
 }
 
 /** Request body for POST /api/gallery/images/register */

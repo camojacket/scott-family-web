@@ -28,6 +28,7 @@ import {
   Fade,
   LinearProgress,
   Snackbar,
+  Slider,
 } from '@mui/material';
 import GridViewIcon from '@mui/icons-material/GridView';
 import ViewListIcon from '@mui/icons-material/ViewList';
@@ -52,6 +53,13 @@ import SelectAllIcon from '@mui/icons-material/SelectAll';
 import DeselectIcon from '@mui/icons-material/Deselect';
 import LocalOfferIcon from '@mui/icons-material/LocalOffer';
 import PersonIcon from '@mui/icons-material/Person';
+import YouTubeIcon from '@mui/icons-material/YouTube';
+import LinkIcon from '@mui/icons-material/Link';
+import AddIcon from '@mui/icons-material/Add';
+import ContentPasteIcon from '@mui/icons-material/ContentPaste';
+import ImageIcon from '@mui/icons-material/Image';
+import VideocamIcon from '@mui/icons-material/Videocam';
+import TimerIcon from '@mui/icons-material/Timer';
 import { apiFetch } from '../../lib/api';
 import { BlockBlobClient } from '@azure/storage-blob';
 import type {
@@ -63,6 +71,9 @@ import type {
   GalleryRegisterRequest,
   GalleryDeleteBatchRequest,
   ImageTag,
+  YouTubeLinkRequest,
+  YouTubeBatchRequest,
+  YouTubeBatchResponse,
 } from '../../lib/types';
 
 interface PersonSearchResult {
@@ -75,13 +86,68 @@ interface PersonSearchResult {
 type ViewMode = 'grid-sm' | 'grid-lg' | 'list';
 type SortBy = 'date-desc' | 'date-asc' | 'uploaded-desc' | 'uploaded-asc' | 'name-asc';
 type SlideshowMode = 'sequential' | 'shuffle';
+type MediaFilter = 'all' | 'images' | 'videos';
+
+/** Check if an item is any kind of video (uploaded or YouTube). */
+function isAnyVideo(img: GalleryImage): boolean {
+  return isVideoContent(img.contentType) || isYouTubeContent(img);
+}
 
 function isVideoContent(contentType: string): boolean {
-  return contentType.startsWith('video/');
+  return contentType.startsWith('video/') && contentType !== 'video/youtube';
+}
+
+function isYouTubeContent(img: GalleryImage): boolean {
+  return img.contentType === 'video/youtube' || !!img.youtubeUrl;
+}
+
+function extractYouTubeVideoId(url: string): string | null {
+  const m = url.match(
+    /(?:(?:www|m)\.)?(?:youtube\.com\/(?:watch\?.*v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i
+  );
+  return m ? m[1] : null;
+}
+
+function getYouTubeThumbnail(url: string): string {
+  const id = extractYouTubeVideoId(url);
+  return id ? `https://img.youtube.com/vi/${id}/hqdefault.jpg` : '';
+}
+
+function getYouTubeEmbedUrl(url: string): string {
+  const id = extractYouTubeVideoId(url);
+  return id ? `https://www.youtube.com/embed/${id}?autoplay=1` : '';
 }
 
 function isVideoFile(file: File): boolean {
   return file.type.startsWith('video/');
+}
+
+/** Represents one YouTube link row in the bulk dialog. */
+interface PendingYouTubeLink {
+  url: string;
+  caption: string;
+  imageDate: string;
+  captionAutoFilled: boolean;
+  error?: string;
+}
+
+/** Extract all YouTube URLs from a block of text. */
+function extractYouTubeUrlsFromText(text: string): string[] {
+  // Matches http(s) YouTube URLs including m.youtube.com, www.youtube.com,
+  // youtube.com, youtu.be — with optional query params, and works even when
+  // URLs are concatenated without whitespace between them.
+  const regex = /https?:\/\/(?:(?:www|m)\.)?(?:youtube\.com\/(?:watch\?[^\s<]*v=([a-zA-Z0-9_-]{11})(?:[^\s<]*)?|embed\/([a-zA-Z0-9_-]{11})(?:[^\s<]*)?|shorts\/([a-zA-Z0-9_-]{11})(?:[^\s<]*)?\.?)|youtu\.be\/([a-zA-Z0-9_-]{11})(?:[^\s<]*)?)/gi;
+  const seen = new Set<string>();
+  const urls: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(text)) !== null) {
+    const videoId = match[1] || match[2] || match[3] || match[4];
+    if (videoId && !seen.has(videoId)) {
+      seen.add(videoId);
+      urls.push(match[0]);
+    }
+  }
+  return urls;
 }
 
 interface PendingUpload {
@@ -108,6 +174,7 @@ export default function FamilyPhotosClient({ initialImages }: { initialImages?: 
   // View controls
   const [viewMode, setViewMode] = useState<ViewMode>('grid-sm');
   const [sortBy, setSortBy] = useState<SortBy>('date-desc');
+  const [mediaFilter, setMediaFilter] = useState<MediaFilter>('all');
 
   // Lightbox
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -117,7 +184,14 @@ export default function FamilyPhotosClient({ initialImages }: { initialImages?: 
   const [slideshowActive, setSlideshowActive] = useState(false);
   const [slideshowMode, setSlideshowMode] = useState<SlideshowMode>('sequential');
   const slideshowTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-  const slideshowSpeed = 4000; // ms
+  const [slideshowSpeed, setSlideshowSpeed] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('gallery-slideshow-speed');
+      return stored ? parseInt(stored, 10) : 4000;
+    }
+    return 4000;
+  });
+  const slideshowVideoPlaying = useRef(false);
 
   // Upload dialog
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -143,6 +217,14 @@ export default function FamilyPhotosClient({ initialImages }: { initialImages?: 
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  // YouTube bulk dialog
+  const [youtubeDialogOpen, setYoutubeDialogOpen] = useState(false);
+  const [pendingYouTubeLinks, setPendingYouTubeLinks] = useState<PendingYouTubeLink[]>([]);
+  const [youtubeSingleUrl, setYoutubeSingleUrl] = useState('');
+  const [youtubePasteText, setYoutubePasteText] = useState('');
+  const [youtubeSaving, setYoutubeSaving] = useState(false);
+  const [youtubeError, setYoutubeError] = useState<string | null>(null);
 
   // File input refs
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -178,10 +260,16 @@ export default function FamilyPhotosClient({ initialImages }: { initialImages?: 
 
   useEffect(() => { if (!initialImages) loadImages(); }, [loadImages, initialImages]);
 
-  // ── Sorting ─────────────────────────────────────────────────
+  // ── Sorting & filtering ─────────────────────────────────
+
+  const filteredImages = React.useMemo(() => {
+    if (mediaFilter === 'images') return images.filter((img) => !isAnyVideo(img));
+    if (mediaFilter === 'videos') return images.filter((img) => isAnyVideo(img));
+    return images;
+  }, [images, mediaFilter]);
 
   const sortedImages = React.useMemo(() => {
-    const sorted = [...images];
+    const sorted = [...filteredImages];
     switch (sortBy) {
       case 'date-desc':
         sorted.sort((a, b) => {
@@ -210,7 +298,7 @@ export default function FamilyPhotosClient({ initialImages }: { initialImages?: 
         break;
     }
     return sorted;
-  }, [images, sortBy]);
+  }, [filteredImages, sortBy]);
 
   // ── Lightbox navigation ─────────────────────────────────────
 
@@ -261,34 +349,72 @@ export default function FamilyPhotosClient({ initialImages }: { initialImages?: 
       setLightboxIdx(slideshowMode === 'shuffle' ? Math.floor(Math.random() * sortedImages.length) : 0);
       setLightboxOpen(true);
     }
+    slideshowVideoPlaying.current = false;
     setSlideshowActive(true);
   };
 
   const stopSlideshow = () => {
     setSlideshowActive(false);
+    slideshowVideoPlaying.current = false;
     if (slideshowTimer.current) {
       clearInterval(slideshowTimer.current);
       slideshowTimer.current = null;
     }
   };
 
+  // Advance slideshow: skip timer while a video is playing
   useEffect(() => {
-    if (slideshowActive) {
-      slideshowTimer.current = setInterval(() => {
-        if (slideshowMode === 'shuffle') {
-          shuffleNext();
-        } else {
-          lightboxNext();
-        }
-      }, slideshowSpeed);
+    if (!slideshowActive) return;
+
+    const current = sortedImages[lightboxIdx];
+    const currentIsVideo = current && isAnyVideo(current);
+
+    // If the current item is a video, don't auto-advance — let the video
+    // play to completion (onEnded handler will call lightboxNext).
+    if (currentIsVideo) {
+      slideshowVideoPlaying.current = true;
+      if (slideshowTimer.current) {
+        clearInterval(slideshowTimer.current);
+        slideshowTimer.current = null;
+      }
+      return;
     }
+
+    // For images, use the configured slideshowSpeed
+    slideshowVideoPlaying.current = false;
+    slideshowTimer.current = setInterval(() => {
+      if (slideshowMode === 'shuffle') {
+        shuffleNext();
+      } else {
+        lightboxNext();
+      }
+    }, slideshowSpeed);
+
     return () => {
       if (slideshowTimer.current) {
         clearInterval(slideshowTimer.current);
         slideshowTimer.current = null;
       }
     };
-  }, [slideshowActive, slideshowMode, slideshowSpeed, shuffleNext, lightboxNext]);
+  }, [slideshowActive, slideshowMode, slideshowSpeed, shuffleNext, lightboxNext, lightboxIdx, sortedImages]);
+
+  /** Called when an uploaded video finishes playing in slideshow mode. */
+  const handleVideoEnded = useCallback(() => {
+    if (slideshowActive) {
+      slideshowVideoPlaying.current = false;
+      if (slideshowMode === 'shuffle') {
+        shuffleNext();
+      } else {
+        lightboxNext();
+      }
+    }
+  }, [slideshowActive, slideshowMode, shuffleNext, lightboxNext]);
+
+  const handleSlideshowSpeedChange = (_: unknown, value: number | number[]) => {
+    const ms = typeof value === 'number' ? value : value[0];
+    setSlideshowSpeed(ms);
+    localStorage.setItem('gallery-slideshow-speed', String(ms));
+  };
 
   // ── File selection helpers ──────────────────────────────────
 
@@ -591,6 +717,173 @@ export default function FamilyPhotosClient({ initialImages }: { initialImages?: 
     setSelectedIds(new Set());
   };
 
+  // ── YouTube helpers ───────────────────────────────────────
+
+  /** Auto-fetch YouTube title via oEmbed for a specific row. */
+  const fetchYouTubeTitle = useCallback(async (url: string, idx: number) => {
+    const videoId = extractYouTubeVideoId(url);
+    if (!videoId) return;
+    try {
+      const res = await fetch(
+        `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.title) {
+        setPendingYouTubeLinks((prev) =>
+          prev.map((p, i) =>
+            i === idx && p.captionAutoFilled
+              ? { ...p, caption: data.title }
+              : i === idx && !p.caption
+                ? { ...p, caption: data.title, captionAutoFilled: true }
+                : p
+          )
+        );
+      }
+    } catch {
+      // Silently ignore
+    }
+  }, []);
+
+  /** Add a single YouTube URL to pending list (validates first). */
+  const addYouTubeRow = useCallback((url: string) => {
+    const trimmed = url.trim();
+    if (!trimmed) return false;
+    const videoId = extractYouTubeVideoId(trimmed);
+    if (!videoId) return false;
+    // Deduplicate
+    setPendingYouTubeLinks((prev) => {
+      if (prev.some((p) => extractYouTubeVideoId(p.url) === videoId)) return prev;
+      return [...prev, { url: trimmed, caption: '', imageDate: '', captionAutoFilled: true }];
+    });
+    return true;
+  }, []);
+
+  /** Parse pasted text for YouTube URLs and add all as rows. */
+  const handleParsePastedUrls = () => {
+    const urls = extractYouTubeUrlsFromText(youtubePasteText);
+    if (urls.length === 0) {
+      setYoutubeError('No valid YouTube URLs found in the pasted text.');
+      return;
+    }
+    let added = 0;
+    for (const url of urls) {
+      if (addYouTubeRow(url)) added++;
+    }
+    setYoutubePasteText('');
+    if (added > 0) {
+      setYoutubeError(null);
+    } else {
+      setYoutubeError('All URLs are already in the list.');
+    }
+  };
+
+  /** Add single URL from the text field. */
+  const handleAddSingleUrl = () => {
+    if (!youtubeSingleUrl.trim()) return;
+    if (!addYouTubeRow(youtubeSingleUrl)) {
+      setYoutubeError('Invalid or duplicate YouTube URL.');
+      return;
+    }
+    setYoutubeSingleUrl('');
+    setYoutubeError(null);
+  };
+
+  const removeYouTubeRow = (idx: number) => {
+    setPendingYouTubeLinks((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const updateYouTubeRow = (idx: number, field: keyof PendingYouTubeLink, value: string) => {
+    setPendingYouTubeLinks((prev) =>
+      prev.map((p, i) =>
+        i === idx
+          ? {
+              ...p,
+              [field]: value,
+              ...(field === 'caption' ? { captionAutoFilled: false } : {}),
+            }
+          : p
+      )
+    );
+  };
+
+  // Auto-fetch titles when new rows are added
+  useEffect(() => {
+    pendingYouTubeLinks.forEach((link, idx) => {
+      if (link.captionAutoFilled && !link.caption && link.url) {
+        fetchYouTubeTitle(link.url, idx);
+      }
+    });
+  }, [pendingYouTubeLinks.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── YouTube bulk save ───────────────────────────────────
+
+  const handleSaveYouTubeLinks = async () => {
+    if (pendingYouTubeLinks.length === 0) return;
+    // Validate all
+    const invalid = pendingYouTubeLinks.filter((p) => !extractYouTubeVideoId(p.url));
+    if (invalid.length > 0) {
+      setYoutubeError(`${invalid.length} invalid YouTube URL(s). Please fix or remove them.`);
+      return;
+    }
+    setYoutubeSaving(true);
+    setYoutubeError(null);
+    try {
+      if (pendingYouTubeLinks.length === 1) {
+        // Single video — use the original endpoint
+        const link = pendingYouTubeLinks[0];
+        const body: YouTubeLinkRequest = {
+          youtubeUrl: link.url,
+          caption: link.caption.trim() || null,
+          imageDate: link.imageDate || null,
+        };
+        await apiFetch<GalleryImage>('/api/gallery/images/youtube', {
+          method: 'POST',
+          body,
+        });
+      } else {
+        // Bulk
+        const body: YouTubeBatchRequest = {
+          videos: pendingYouTubeLinks.map((link) => ({
+            youtubeUrl: link.url,
+            caption: link.caption.trim() || null,
+            imageDate: link.imageDate || null,
+          })),
+        };
+        const res = await apiFetch<YouTubeBatchResponse>('/api/gallery/images/youtube/batch', {
+          method: 'POST',
+          body,
+        });
+        if (res.errors?.length > 0) {
+          setSnackbar({
+            message: `Added ${res.uploaded.length} videos. Errors: ${res.errors.join('; ')}`,
+            severity: 'success',
+          });
+          setYoutubeDialogOpen(false);
+          setPendingYouTubeLinks([]);
+          setYoutubeSingleUrl('');
+          setYoutubePasteText('');
+          await loadImages();
+          return;
+        }
+      }
+
+      setYoutubeDialogOpen(false);
+      setPendingYouTubeLinks([]);
+      setYoutubeSingleUrl('');
+      setYoutubePasteText('');
+      setSnackbar({
+        message: `${pendingYouTubeLinks.length} YouTube video${pendingYouTubeLinks.length !== 1 ? 's' : ''} added to gallery!`,
+        severity: 'success',
+      });
+      await loadImages();
+    } catch (err) {
+      setYoutubeError(err instanceof Error ? err.message : 'Failed to add YouTube videos');
+    } finally {
+      setYoutubeSaving(false);
+    }
+  };
+
   const handleBulkDelete = async () => {
     if (selectedIds.size === 0) return;
     if (!confirm(`Delete ${selectedIds.size} selected image${selectedIds.size !== 1 ? 's' : ''}? This cannot be undone.`)) return;
@@ -672,6 +965,24 @@ export default function FamilyPhotosClient({ initialImages }: { initialImages?: 
           </Select>
         </FormControl>
 
+        {/* Media filter */}
+        <ToggleButtonGroup
+          value={mediaFilter}
+          exclusive
+          onChange={(_, val) => val && setMediaFilter(val)}
+          size="small"
+        >
+          <ToggleButton value="all" aria-label="All media">
+            <Tooltip title="All"><PhotoLibraryIcon /></Tooltip>
+          </ToggleButton>
+          <ToggleButton value="images" aria-label="Images only">
+            <Tooltip title="Images only"><ImageIcon /></Tooltip>
+          </ToggleButton>
+          <ToggleButton value="videos" aria-label="Videos only">
+            <Tooltip title="Videos only"><VideocamIcon /></Tooltip>
+          </ToggleButton>
+        </ToggleButtonGroup>
+
         {/* Slideshow */}
         {sortedImages.length > 0 && (
           <Button
@@ -694,6 +1005,18 @@ export default function FamilyPhotosClient({ initialImages }: { initialImages?: 
             onClick={() => setUploadOpen(true)}
           >
             Upload Photos
+          </Button>
+        )}
+
+        {/* Admin: Add YouTube Link */}
+        {isAdmin && (
+          <Button
+            variant="contained"
+            color="error"
+            startIcon={<YouTubeIcon />}
+            onClick={() => setYoutubeDialogOpen(true)}
+          >
+            Add YouTube
           </Button>
         )}
 
@@ -769,7 +1092,18 @@ export default function FamilyPhotosClient({ initialImages }: { initialImages?: 
       {/* Image count */}
       {!loading && (
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          {sortedImages.length} {sortedImages.length === 1 ? 'photo' : 'photos'}
+          {sortedImages.length} {sortedImages.length === 1 ? 'item' : 'items'}
+          {mediaFilter !== 'all' && ` (${mediaFilter})`}
+          {mediaFilter === 'all' && (() => {
+            const ytCount = sortedImages.filter(isYouTubeContent).length;
+            const vidCount = sortedImages.filter((img) => isVideoContent(img.contentType)).length;
+            const totalVid = ytCount + vidCount;
+            const imgCount = sortedImages.length - totalVid;
+            const parts: string[] = [];
+            if (imgCount > 0) parts.push(`${imgCount} image${imgCount !== 1 ? 's' : ''}`);
+            if (totalVid > 0) parts.push(`${totalVid} video${totalVid !== 1 ? 's' : ''}`);
+            return parts.length > 0 ? ` (${parts.join(', ')})` : '';
+          })()}
         </Typography>
       )}
 
@@ -836,7 +1170,62 @@ export default function FamilyPhotosClient({ initialImages }: { initialImages?: 
                   overflow: 'hidden',
                 }}
               >
-                {isVideoContent(img.contentType) ? (
+                {isYouTubeContent(img) ? (
+                  <>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={img.youtubeUrl ? getYouTubeThumbnail(img.youtubeUrl) : img.cdnUrl}
+                      alt={img.caption || 'YouTube video'}
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover',
+                      }}
+                    />
+                    <Box
+                      sx={{
+                        position: 'absolute',
+                        top: '50%',
+                        left: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        width: 48,
+                        height: 48,
+                        borderRadius: '50%',
+                        bgcolor: 'rgba(255, 0, 0, 0.85)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        pointerEvents: 'none',
+                      }}
+                    >
+                      <PlayArrowIcon sx={{ color: 'white', fontSize: 28 }} />
+                    </Box>
+                    <Box
+                      sx={{
+                        position: 'absolute',
+                        bottom: 6,
+                        right: 6,
+                        bgcolor: 'rgba(255, 0, 0, 0.85)',
+                        color: '#fff',
+                        fontSize: '0.65rem',
+                        px: 0.75,
+                        py: 0.25,
+                        borderRadius: 0.5,
+                        fontWeight: 700,
+                        letterSpacing: '0.03em',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 0.5,
+                      }}
+                    >
+                      <YouTubeIcon sx={{ fontSize: 12 }} />
+                      YouTube
+                    </Box>
+                  </>
+                ) : isVideoContent(img.contentType) ? (
                   <>
                     <video
                       src={img.cdnUrl}
@@ -1009,7 +1398,19 @@ export default function FamilyPhotosClient({ initialImages }: { initialImages?: 
                       : <CheckBoxOutlineBlankIcon sx={{ fontSize: 20, color: 'var(--color-gray-400)' }} />}
                   </Box>
                 )}
-                {isVideoContent(img.contentType) ? (
+                {isYouTubeContent(img) ? (
+                  <>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={img.youtubeUrl ? getYouTubeThumbnail(img.youtubeUrl) : img.cdnUrl}
+                      alt={img.caption || 'YouTube video'}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    />
+                    <Box sx={{ position: 'absolute', bottom: 2, left: 2, bgcolor: 'rgba(255,0,0,0.8)', color: 'white', px: 0.5, borderRadius: 0.5, fontSize: '0.6rem', lineHeight: 1.2, display: 'flex', alignItems: 'center', gap: 0.25 }}>
+                      <YouTubeIcon sx={{ fontSize: 10 }} />YT
+                    </Box>
+                  </>
+                ) : isVideoContent(img.contentType) ? (
                   <video
                     src={img.cdnUrl}
                     muted
@@ -1033,8 +1434,9 @@ export default function FamilyPhotosClient({ initialImages }: { initialImages?: 
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
                   {img.imageDate ? formatDate(img.imageDate) : 'No date'}
-                  {' · '}
-                  {(img.sizeBytes / 1024).toFixed(0)} KB
+                  {isYouTubeContent(img)
+                    ? ' · YouTube'
+                    : ` · ${(img.sizeBytes / 1024).toFixed(0)} KB`}
                 </Typography>
                 {img.tags && img.tags.length > 0 && (
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
@@ -1136,6 +1538,28 @@ export default function FamilyPhotosClient({ initialImages }: { initialImages?: 
                   </IconButton>
                 </Tooltip>
 
+                {/* Speed slider (image duration) */}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ml: 1 }}>
+                  <Tooltip title="Slide duration (images only)">
+                    <TimerIcon sx={{ color: 'rgba(255,255,255,0.7)', fontSize: 20 }} />
+                  </Tooltip>
+                  <Slider
+                    value={slideshowSpeed}
+                    onChange={handleSlideshowSpeedChange}
+                    min={1000}
+                    max={15000}
+                    step={500}
+                    valueLabelDisplay="auto"
+                    valueLabelFormat={(v) => `${(v / 1000).toFixed(1)}s`}
+                    sx={{
+                      width: 100,
+                      color: 'white',
+                      '& .MuiSlider-thumb': { width: 14, height: 14 },
+                      '& .MuiSlider-rail': { opacity: 0.3 },
+                    }}
+                  />
+                </Box>
+
                 <IconButton sx={{ color: 'white' }} onClick={closeLightbox}>
                   <CloseIcon />
                 </IconButton>
@@ -1170,12 +1594,34 @@ export default function FamilyPhotosClient({ initialImages }: { initialImages?: 
               </IconButton>
 
               <Fade in key={currentLightboxImage.id} timeout={400}>
-                {isVideoContent(currentLightboxImage.contentType) ? (
+                {isYouTubeContent(currentLightboxImage) ? (
+                  <Box
+                    sx={{
+                      width: '90vw',
+                      maxWidth: 960,
+                      aspectRatio: '16/9',
+                    }}
+                  >
+                    <iframe
+                      src={getYouTubeEmbedUrl(currentLightboxImage.youtubeUrl || currentLightboxImage.cdnUrl)}
+                      title={currentLightboxImage.caption || 'YouTube video'}
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        border: 'none',
+                        borderRadius: '4px',
+                      }}
+                    />
+                  </Box>
+                ) : isVideoContent(currentLightboxImage.contentType) ? (
                   <video
                     src={currentLightboxImage.cdnUrl}
                     controls
                     autoPlay
                     playsInline
+                    onEnded={handleVideoEnded}
                     style={{
                       maxWidth: '90vw',
                       maxHeight: 'calc(100vh - 120px)',
@@ -1382,7 +1828,33 @@ export default function FamilyPhotosClient({ initialImages }: { initialImages?: 
           {editImage && (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
               <Box sx={{ textAlign: 'center' }}>
-                {isVideoContent(editImage.contentType) ? (
+                {isYouTubeContent(editImage) ? (
+                  <Box sx={{ position: 'relative', width: '100%', maxWidth: 400, mx: 'auto', aspectRatio: '16/9' }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={editImage.youtubeUrl ? getYouTubeThumbnail(editImage.youtubeUrl) : editImage.cdnUrl}
+                      alt={editImage.caption || 'YouTube video'}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 4 }}
+                    />
+                    <Box
+                      sx={{
+                        position: 'absolute',
+                        top: '50%',
+                        left: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        width: 48,
+                        height: 48,
+                        borderRadius: '50%',
+                        bgcolor: 'rgba(255, 0, 0, 0.85)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <PlayArrowIcon sx={{ color: 'white', fontSize: 28 }} />
+                    </Box>
+                  </Box>
+                ) : isVideoContent(editImage.contentType) ? (
                   <video
                     src={editImage.cdnUrl}
                     controls
@@ -1486,6 +1958,208 @@ export default function FamilyPhotosClient({ initialImages }: { initialImages?: 
           <Button onClick={() => setEditImage(null)} disabled={editSaving}>Cancel</Button>
           <Button variant="contained" onClick={saveEdit} disabled={editSaving}>
             {editSaving ? 'Saving…' : 'Save'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ═══ YouTube Link Dialog ════════════════════════════ */}
+      <Dialog
+        open={youtubeDialogOpen}
+        onClose={() => !youtubeSaving && setYoutubeDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <YouTubeIcon sx={{ color: '#FF0000' }} /> Add YouTube Videos
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, mt: 1 }}>
+            {youtubeError && (
+              <Alert severity="error" onClose={() => setYoutubeError(null)}>
+                {youtubeError}
+              </Alert>
+            )}
+
+            {/* ── Option 1: Paste multiple URLs at once ── */}
+            <Paper variant="outlined" sx={{ p: 2 }}>
+              <Typography variant="subtitle2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <ContentPasteIcon fontSize="small" /> Paste Multiple Links
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5, display: 'block' }}>
+                Paste a block of text containing YouTube URLs (one per line, mixed with other text, etc.) and we&apos;ll extract them all.
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+                <TextField
+                  multiline
+                  minRows={2}
+                  maxRows={4}
+                  placeholder={'https://www.youtube.com/watch?v=abc123\nhttps://youtu.be/xyz789\n...'}
+                  value={youtubePasteText}
+                  onChange={(e) => setYoutubePasteText(e.target.value)}
+                  fullWidth
+                  size="small"
+                  disabled={youtubeSaving}
+                />
+                <Button
+                  variant="contained"
+                  size="small"
+                  onClick={handleParsePastedUrls}
+                  disabled={!youtubePasteText.trim() || youtubeSaving}
+                  sx={{ minWidth: 90, whiteSpace: 'nowrap', mt: 0.5 }}
+                >
+                  Parse URLs
+                </Button>
+              </Box>
+            </Paper>
+
+            {/* ── Option 2: Add one link at a time ── */}
+            <Paper variant="outlined" sx={{ p: 2 }}>
+              <Typography variant="subtitle2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <LinkIcon fontSize="small" /> Add One at a Time
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <TextField
+                  placeholder="https://www.youtube.com/watch?v=..."
+                  value={youtubeSingleUrl}
+                  onChange={(e) => setYoutubeSingleUrl(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddSingleUrl(); } }}
+                  fullWidth
+                  size="small"
+                  disabled={youtubeSaving}
+                  slotProps={{
+                    input: {
+                      startAdornment: <LinkIcon sx={{ mr: 1, color: 'text.secondary', fontSize: 18 }} />,
+                    },
+                  }}
+                />
+                <Button
+                  variant="outlined"
+                  startIcon={<AddIcon />}
+                  onClick={handleAddSingleUrl}
+                  disabled={!youtubeSingleUrl.trim() || youtubeSaving}
+                  sx={{ minWidth: 80, whiteSpace: 'nowrap' }}
+                >
+                  Add
+                </Button>
+              </Box>
+            </Paper>
+
+            {/* ── Pending YouTube rows ── */}
+            {pendingYouTubeLinks.length > 0 && (
+              <>
+                <Typography variant="body2" color="text.secondary">
+                  {pendingYouTubeLinks.length} video{pendingYouTubeLinks.length !== 1 ? 's' : ''} ready to save
+                </Typography>
+
+                <Box sx={{ maxHeight: 400, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                  {pendingYouTubeLinks.map((link, idx) => {
+                    const videoId = extractYouTubeVideoId(link.url);
+                    return (
+                      <Paper
+                        key={idx}
+                        variant="outlined"
+                        sx={{ display: 'flex', gap: 1.5, p: 1.5, alignItems: 'flex-start' }}
+                      >
+                        {/* Thumbnail */}
+                        <Box
+                          sx={{
+                            width: 100,
+                            height: 56,
+                            flexShrink: 0,
+                            borderRadius: 1,
+                            overflow: 'hidden',
+                            position: 'relative',
+                            bgcolor: 'grey.100',
+                          }}
+                        >
+                          {videoId && (
+                            <>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={`https://img.youtube.com/vi/${videoId}/mqdefault.jpg`}
+                                alt="Thumbnail"
+                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                              />
+                              <Box
+                                sx={{
+                                  position: 'absolute',
+                                  top: '50%',
+                                  left: '50%',
+                                  transform: 'translate(-50%, -50%)',
+                                  width: 28,
+                                  height: 28,
+                                  borderRadius: '50%',
+                                  bgcolor: 'rgba(255,0,0,0.8)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                }}
+                              >
+                                <PlayArrowIcon sx={{ color: 'white', fontSize: 16 }} />
+                              </Box>
+                            </>
+                          )}
+                        </Box>
+
+                        {/* Fields */}
+                        <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
+                          <Typography variant="caption" color="text.secondary" noWrap title={link.url}>
+                            {link.url}
+                          </Typography>
+                          <Box sx={{ display: 'flex', gap: 1 }}>
+                            <TextField
+                              size="small"
+                              label="Title / Caption"
+                              value={link.caption}
+                              onChange={(e) => updateYouTubeRow(idx, 'caption', e.target.value)}
+                              sx={{ flex: 2 }}
+                              disabled={youtubeSaving}
+                              placeholder={link.captionAutoFilled ? 'Loading title…' : ''}
+                            />
+                            <TextField
+                              size="small"
+                              label="Date"
+                              type="date"
+                              value={link.imageDate}
+                              onChange={(e) => updateYouTubeRow(idx, 'imageDate', e.target.value)}
+                              slotProps={{ inputLabel: { shrink: true } }}
+                              sx={{ flex: 1 }}
+                              disabled={youtubeSaving}
+                            />
+                          </Box>
+                        </Box>
+
+                        {/* Remove button */}
+                        <IconButton
+                          size="small"
+                          onClick={() => removeYouTubeRow(idx)}
+                          disabled={youtubeSaving}
+                          sx={{ mt: 0.5 }}
+                        >
+                          <CloseIcon fontSize="small" />
+                        </IconButton>
+                      </Paper>
+                    );
+                  })}
+                </Box>
+              </>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setYoutubeDialogOpen(false)} disabled={youtubeSaving}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={handleSaveYouTubeLinks}
+            disabled={pendingYouTubeLinks.length === 0 || youtubeSaving}
+            startIcon={youtubeSaving ? <CircularProgress size={18} color="inherit" /> : <YouTubeIcon />}
+          >
+            {youtubeSaving
+              ? 'Saving…'
+              : `Save ${pendingYouTubeLinks.length} Video${pendingYouTubeLinks.length !== 1 ? 's' : ''}`}
           </Button>
         </DialogActions>
       </Dialog>

@@ -17,6 +17,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Scheduled job that scans Azure Blob Storage for orphaned blobs —
@@ -30,6 +32,7 @@ import java.util.*;
  *   - people.profile_picture_url, people.banner_image_url (CDN URLs → blob keys)
  *   - products.image_url (CDN URLs → blob keys)
  *   - site_settings "slideshow_images" (JSON array with CDN URLs)
+ *   - page_content.blocks (JSON blocks containing embedded CDN URLs)
  *
  * Any blob in the container NOT in this reference set AND older than 24 hours
  * is deleted (the 24h grace period prevents racing with in-progress uploads).
@@ -53,6 +56,7 @@ public class OrphanBlobCleanupJob {
     private static final Table<?> FAMILY_ARTIFACTS = DSL.table(DSL.name("FAMILY_ARTIFACTS"));
     private static final Table<?> PEOPLE           = DSL.table(DSL.name("PEOPLE"));
     private static final Table<?> PRODUCTS         = DSL.table(DSL.name("products"));
+    private static final Table<?> PAGE_CONTENT     = DSL.table(DSL.name("page_content"));
 
     private static final Field<String> G_BLOB_KEY  = DSL.field(DSL.name("GALLERY_IMAGES",   "blob_key"), String.class);
     private static final Field<String> O_BLOB_KEY  = DSL.field(DSL.name("OBITUARY",         "blob_key"), String.class);
@@ -61,6 +65,7 @@ public class OrphanBlobCleanupJob {
     private static final Field<String> P_PFP       = DSL.field(DSL.name("PEOPLE",           "profile_picture_url"), String.class);
     private static final Field<String> P_BANNER    = DSL.field(DSL.name("PEOPLE",           "banner_image_url"),    String.class);
     private static final Field<String> PR_IMAGE    = DSL.field(DSL.name("products",         "image_url"),           String.class);
+    private static final Field<String> PC_BLOCKS   = DSL.field(DSL.name("page_content",     "blocks"),              String.class);
 
     public OrphanBlobCleanupJob(BlobContainerClient container,
                                 DSLContext dsl,
@@ -134,6 +139,9 @@ public class OrphanBlobCleanupJob {
         // 3. Slideshow images from site_settings (JSON array with "url" fields)
         collectSlideshowKeys(keys);
 
+        // 4. CDN URLs embedded in page_content blocks (history, etc.)
+        collectPageContentKeys(keys);
+
         return keys;
     }
 
@@ -175,6 +183,40 @@ public class OrphanBlobCleanupJob {
             }
         } catch (Exception e) {
             log.warn("OrphanBlobCleanupJob: failed to parse slideshow_images: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Extract CDN URLs embedded in page_content.blocks JSON.
+     * Blocks can contain "src" fields (hero, image, image-row) that reference CDN URLs.
+     * We use a regex approach to find all CDN URLs since the JSON structure varies by block type.
+     */
+    private void collectPageContentKeys(Set<String> keys) {
+        try {
+            List<String> allBlocks = dsl.select(PC_BLOCKS)
+                    .from(PAGE_CONTENT)
+                    .where(PC_BLOCKS.isNotNull())
+                    .fetch(PC_BLOCKS);
+
+            String baseUrl = cdnProps.getBaseUrl();
+            if (baseUrl == null || baseUrl.isBlank()) return;
+
+            // Build a regex that matches any CDN URL in the JSON
+            String escapedBase = Pattern.quote(baseUrl.endsWith("/") ? baseUrl : baseUrl + "/");
+            Pattern cdnPattern = Pattern.compile(escapedBase + "([^\"\\s]+)");
+
+            for (String blocksJson : allBlocks) {
+                if (blocksJson == null || blocksJson.isBlank()) continue;
+                Matcher matcher = cdnPattern.matcher(blocksJson);
+                while (matcher.find()) {
+                    String blobKey = matcher.group(1);
+                    if (blobKey != null && !blobKey.isBlank()) {
+                        keys.add(blobKey);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("OrphanBlobCleanupJob: failed to scan page_content blocks: {}", e.getMessage());
         }
     }
 

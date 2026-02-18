@@ -185,13 +185,13 @@ public class CdnUploadService {
         final String folder;
         switch (kind) {
             case PROFILE:
-                folder = (userId != null ? "users/" + userId + "/pfp/" : "anonymous/pfp/");
+                folder = "pfp/";
                 break;
             case BANNER:
-                folder = (userId != null ? "users/" + userId + "/banner/" : "anonymous/banner/");
+                folder = "banner/";
                 break;
             case POST_IMAGE:
-                folder = (userId != null ? "users/" + userId + "/posts/" : "anonymous/posts/");
+                folder = "posts/";
                 break;
             case STATIC:
                 folder = "static/";
