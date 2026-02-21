@@ -32,6 +32,7 @@ import java.util.regex.Pattern;
  *   - people.profile_picture_url, people.banner_image_url (CDN URLs → blob keys)
  *   - products.image_url (CDN URLs → blob keys)
  *   - site_settings "slideshow_images" (JSON array with CDN URLs)
+ *   - site_settings CDN URL values (reunion_info_packet_url, home_image_url, etc.)
  *   - page_content.blocks (JSON blocks containing embedded CDN URLs)
  *
  * Any blob in the container NOT in this reference set AND older than 24 hours
@@ -139,7 +140,10 @@ public class OrphanBlobCleanupJob {
         // 3. Slideshow images from site_settings (JSON array with "url" fields)
         collectSlideshowKeys(keys);
 
-        // 4. CDN URLs embedded in page_content blocks (history, etc.)
+        // 4. CDN URLs stored as site_settings values (info packet, home image, etc.)
+        collectSettingsCdnUrls(keys);
+
+        // 5. CDN URLs embedded in page_content blocks (history, etc.)
         collectPageContentKeys(keys);
 
         return keys;
@@ -183,6 +187,31 @@ public class OrphanBlobCleanupJob {
             }
         } catch (Exception e) {
             log.warn("OrphanBlobCleanupJob: failed to parse slideshow_images: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Collect blob keys from site_settings values that contain CDN URLs.
+     * This covers settings like reunion_info_packet_url, home_image_url, etc.
+     */
+    private static final List<String> CDN_URL_SETTING_KEYS = List.of(
+            "reunion_info_packet_url",
+            "home_image_url"
+    );
+
+    private void collectSettingsCdnUrls(Set<String> keys) {
+        try {
+            for (String settingKey : CDN_URL_SETTING_KEYS) {
+                String url = settingsService.get(settingKey);
+                if (url != null && !url.isBlank()) {
+                    String blobKey = extractBlobKey(url);
+                    if (blobKey != null && !blobKey.isBlank()) {
+                        keys.add(blobKey);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("OrphanBlobCleanupJob: failed to collect CDN URL settings: {}", e.getMessage());
         }
     }
 

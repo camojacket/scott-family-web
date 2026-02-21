@@ -31,8 +31,8 @@ export interface PersonAutocompleteProps {
   label: string;
   value?: number | null;
   onChange: (personId: number | null) => void;
-  /** Optional richer callback that also provides the display name. */
-  onChangeFull?: (person: { personId: number; displayName: string } | null) => void;
+  /** Optional richer callback that also provides the display name and DOB. */
+  onChangeFull?: (person: { personId: number; displayName: string; dateOfBirth?: string | null } | null) => void;
   /** Creates or requests a person. Return personId for immediate use, or null if submitted for approval. */
   onAddPerson?: (firstName: string, lastName: string, dob?: string, dod?: string) => Promise<number | null>;
   disabled?: boolean;
@@ -155,7 +155,7 @@ export default function PersonAutocomplete({
         getOptionLabel={(o) => o?.displayName ?? ''}
         onChange={(_, opt) => {
           onChange(opt ? opt.personId : null);
-          onChangeFull?.(opt ? { personId: opt.personId, displayName: opt.displayName } : null);
+          onChangeFull?.(opt ? { personId: opt.personId, displayName: opt.displayName, dateOfBirth: opt.dateOfBirth } : null);
           setPendingMsg(null);
           resetAdder();
         }}

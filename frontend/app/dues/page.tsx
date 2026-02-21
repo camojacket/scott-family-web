@@ -47,6 +47,7 @@ interface GuestEntry {
 interface OnBehalfEntry {
   personId: number;
   displayName: string;
+  dateOfBirth?: string | null;
 }
 
 export default function DuesPage() {
@@ -96,6 +97,30 @@ export default function DuesPage() {
       return selfAmountCents; // fallback to the self amount
     },
     [pricingTiers, selfAmountCents],
+  );
+
+  /** Compute age from a date-of-birth string (yyyy-MM-dd). Returns null if invalid. */
+  const ageFromDob = (dob?: string | null): number | null => {
+    if (!dob) return null;
+    try {
+      const birth = new Date(dob);
+      if (isNaN(birth.getTime())) return null;
+      const today = new Date();
+      let age = today.getFullYear() - birth.getFullYear();
+      const m = today.getMonth() - birth.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+      return age;
+    } catch { return null; }
+  };
+
+  /** Resolve price for an on-behalf entry using their DOB-based age. */
+  const resolvePriceForOnBehalf = useCallback(
+    (entry: OnBehalfEntry): number => {
+      const age = ageFromDob(entry.dateOfBirth);
+      if (age != null) return resolvePriceByAge(age);
+      return selfAmountCents; // fallback if DOB unknown
+    },
+    [resolvePriceByAge, selfAmountCents],
   );
 
   const loadDuesPage = useCallback(async () => {
@@ -248,7 +273,7 @@ export default function DuesPage() {
     setGuests(prev => prev.filter((_, i) => i !== index));
   };
 
-  const addOnBehalf = (person: { personId: number; displayName: string } | null) => {
+  const addOnBehalf = (person: { personId: number; displayName: string; dateOfBirth?: string | null } | null) => {
     if (!person) return;
     // Prevent duplicates in current cart
     if (onBehalfEntries.some(e => e.personId === person.personId)) {
@@ -260,7 +285,7 @@ export default function DuesPage() {
       setSnack({ msg: `${person.displayName}'s dues are already paid or pending for this year`, severity: 'error' });
       return;
     }
-    setOnBehalfEntries(prev => [...prev, { personId: person.personId, displayName: person.displayName }]);
+    setOnBehalfEntries(prev => [...prev, { personId: person.personId, displayName: person.displayName, dateOfBirth: person.dateOfBirth }]);
   };
 
   const removeOnBehalf = (index: number) => {
@@ -271,7 +296,7 @@ export default function DuesPage() {
   const totalCents =
     (payForSelf && !pageData?.selfPaid ? selfAmountCents : 0) +
     guests.reduce((sum, g) => sum + resolvePriceByAge(parseInt(g.age) || 0), 0) +
-    onBehalfEntries.length * selfAmountCents;  // Estimate for on-behalf; server computes actual
+    onBehalfEntries.reduce((sum, e) => sum + resolvePriceForOnBehalf(e), 0);
 
   const handleCheckout = async () => {
     if (totalPeople === 0) {
@@ -819,7 +844,7 @@ export default function DuesPage() {
                     <Box>
                       <Typography sx={{ fontWeight: 600 }}>{entry.displayName}</Typography>
                       <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>
-                        {formatCents(selfAmountCents)}
+                        {formatCents(resolvePriceForOnBehalf(entry))}
                       </Typography>
                     </Box>
                     <IconButton
