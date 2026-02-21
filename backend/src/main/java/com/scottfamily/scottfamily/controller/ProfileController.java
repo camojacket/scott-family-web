@@ -5,14 +5,9 @@ import com.scottfamily.scottfamily.dto.DTOs;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.MediaType;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.multipart.MultipartFile;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -35,9 +30,6 @@ public class ProfileController {
     private static final org.jooq.Field<String> P_PROFILE_PICTURE_URL = DSL.field(DSL.name("profile_picture_url"), String.class);
     private static final org.jooq.Field<String> P_BANNER_IMAGE_URL   = DSL.field(DSL.name("banner_image_url"),   String.class);
     private static final org.jooq.Field<String> P_LOCATION           = DSL.field(DSL.name("location"),           String.class);
-
-    @Value("${uploads.dir:uploads}")
-    private String uploadsDir;
 
     public record UpdateProfile(
             String firstName,
@@ -97,14 +89,5 @@ public class ProfileController {
             }
             upd.where(PEOPLE.ID.eq(personId)).execute();
         }
-    }
-
-    @PostMapping(path = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public String upload(@RequestPart("file") MultipartFile file) throws Exception {
-        Files.createDirectories(Path.of(uploadsDir));
-        var cleanName = System.currentTimeMillis() + "-" + file.getOriginalFilename().replaceAll("[^a-zA-Z0-9._-]", "_");
-        var path = Path.of(uploadsDir, cleanName);
-        file.transferTo(path.toFile());
-        return "/uploads/" + cleanName;
     }
 }

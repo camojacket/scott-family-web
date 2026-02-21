@@ -5,7 +5,7 @@ export const API_BASE =
     process.env.NEXT_PUBLIC_API_BASE.replace(/\/+$/, '')) ||
   '';
 
-export type JsonInit = Omit<RequestInit, 'body'> & { body?: unknown };
+type JsonInit = Omit<RequestInit, 'body'> & { body?: unknown };
 
 /** Custom error class with HTTP status info for callers to handle gracefully */
 export class ApiError extends Error {

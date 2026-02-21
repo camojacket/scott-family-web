@@ -3,31 +3,6 @@
  * Keep in sync with backend DTOs (DTOs.java).
  */
 
-// ─── Auth ───────────────────────────────────────────────────
-
-export interface LoginRequest {
-  username: string;
-  password: string;
-}
-
-export interface SignupRequest {
-  username: string;
-  password: string;
-  email: string;
-  firstName: string;
-  lastName: string;
-  middleName?: string;
-  prefix?: string;
-  suffix?: string;
-  bio?: string;
-  profilePictureUrl?: string;
-  bannerImageUrl?: string;
-  dateOfBirth?: string;
-  motherId?: number | null;
-  fatherId?: number | null;
-  claimPersonId?: number | null;
-}
-
 // ─── User / Profile ────────────────────────────────────────
 
 export interface ProfileDto {
@@ -70,38 +45,6 @@ export interface PersonSummaryDto {
   deceased?: boolean;
   relation?: string;
 }
-
-// ─── People ─────────────────────────────────────────────────
-
-export interface CreatePersonRequest {
-  firstName: string;
-  lastName: string;
-  middleName?: string;
-  prefix?: string;
-  suffix?: string;
-  dateOfBirth?: string;
-  dateOfDeath?: string;
-}
-
-export interface LinkChildRequest {
-  childPersonId?: number;
-  firstName?: string;
-  lastName?: string;
-  dateOfBirth?: string;
-  dateOfDeath?: string;
-  relation: ParentRelationType;
-}
-
-export type ParentRelationType =
-  | 'BIOLOGICAL_MOTHER'
-  | 'BIOLOGICAL_FATHER'
-  | 'STEP_MOTHER'
-  | 'STEP_FATHER'
-  | 'ADOPTIVE_MOTHER'
-  | 'ADOPTIVE_FATHER'
-  | 'FOSTER_MOTHER'
-  | 'FOSTER_FATHER'
-  | 'GUARDIAN';
 
 // ─── Family Tree ────────────────────────────────────────────
 
@@ -160,15 +103,6 @@ export interface AnnouncementDto {
   updatedAt: string;
 }
 
-export interface PendingUserDto {
-  id: number;
-  username: string;
-  email: string;
-  displayName: string;
-  requestedAt: string;
-  profilePictureUrl?: string;
-}
-
 export interface AdminUserItem {
   id: number;
   username: string;
@@ -180,16 +114,6 @@ export interface AdminUserItem {
   bannedUntil: string | null;
   banReason: string | null;
   personId: number | null;
-}
-
-export interface PendingProfileChangeItem {
-  id: number;
-  userId: number;
-  displayName: string;
-  field: string;
-  oldValue?: string;
-  newValue?: string;
-  createdAt: string;
 }
 
 export interface PersonRequestItem {
@@ -219,25 +143,11 @@ export interface RsvpDto {
   updatedAt?: string | null;
 }
 
-export interface RsvpRequest {
-  attending: boolean;
-  extraGuests?: number;
-  notes?: string | null;
-}
-
 export interface RsvpSummary {
   totalAttending: number;
   totalNotAttending: number;
   totalExtraGuests: number;
   totalHeadcount: number;
-}
-
-// ─── Payments ───────────────────────────────────────────────
-
-export interface PaymentRequest {
-  sourceId: string;
-  amount: number;
-  currency?: string;
 }
 
 // ─── Dues ───────────────────────────────────────────────────
@@ -383,7 +293,7 @@ export interface OrderDto {
 
 // ─── Assets ─────────────────────────────────────────────────
 
-export type AssetKind = 'PROFILE' | 'BANNER' | 'POST_IMAGE' | 'STATIC' | 'PRODUCT';
+export type AssetKind = 'PROFILE' | 'BANNER' | 'STATIC' | 'PRODUCT';
 
 export interface AssetUploadResponse {
   key: string;
@@ -396,11 +306,6 @@ export interface Change {
   field: string;
   oldValue?: string;
   newValue?: string;
-}
-
-export interface ProfileChangeSubmitRequest {
-  userId: number;
-  changes: Change[];
 }
 
 // ─── Gallery ────────────────────────────────────────────────

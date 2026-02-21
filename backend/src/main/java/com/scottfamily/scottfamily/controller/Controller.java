@@ -3,7 +3,6 @@ package com.scottfamily.scottfamily.controller;
 
 import com.scottfamily.scottfamily.dto.DTOs;
 import com.scottfamily.scottfamily.service.AuthService;
-import com.scottfamily.scottfamily.service.CommentService;
 import com.scottfamily.scottfamily.service.FamilyTreeService;
 import com.scottfamily.scottfamily.security.LoginRateLimiter;
 import lombok.RequiredArgsConstructor;
@@ -33,7 +32,6 @@ import org.springframework.security.web.context.SecurityContextRepository;
 public class Controller {
 
     private final AuthService authService;
-    private final CommentService commentService;
     private final FamilyTreeService familyTreeService;
     private final DSLContext dsl;
     private final SecurityContextRepository securityContextRepository;
@@ -186,12 +184,6 @@ public class Controller {
         } catch (NumberFormatException e) {
             return 1200;
         }
-    }
-
-    // --- Comments ---
-    @GetMapping("/comments/post/{postId}")
-    public List<DTOs.CommentDto> getCommentsForBlogPost(@PathVariable Long postId) {
-        return commentService.getComments(postId);
     }
 
     // --- Family tree ---

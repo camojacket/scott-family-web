@@ -100,16 +100,13 @@ export default function ReunionClient({ initialSettings }: { initialSettings?: R
     apiFetch<RsvpDto[]>('/api/rsvp/all').then(setAllRsvps).catch(() => {});
   }, []);
 
-  // ── Settings save (unchanged pattern) ──
+  // ── Settings save ──
   const handleSave = async (key: string, setter: (v: string) => void, label: string) => {
     try {
-      const res = await fetch(`${API_BASE}/api/settings`, {
+      await apiFetch('/api/settings', {
         method: 'PUT',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ [key]: draft }),
+        body: { [key]: draft },
       });
-      if (!res.ok) throw new Error();
       setter(draft);
       setEditing(null);
       setSnack({ msg: `${label} saved`, severity: 'success' });
@@ -133,16 +130,10 @@ export default function ReunionClient({ initialSettings }: { initialSettings?: R
     try {
       const fd = new FormData();
       fd.append('file', file);
-      const res = await fetch(`${API_BASE}/api/settings/info-packet`, {
+      const data = await apiFetch<{ cdnUrl: string }>('/api/settings/info-packet', {
         method: 'POST',
-        credentials: 'include',
         body: fd,
       });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || 'Upload failed');
-      }
-      const data = await res.json();
       setInfoPacketUrl(data.cdnUrl);
       setSnack({ msg: 'Information Packet updated', severity: 'success' });
     } catch {

@@ -26,7 +26,7 @@ import com.scottfamily.scottfamily.properties.CdnProperties;
 @Service
 public class CdnUploadService {
 
-    public enum AssetKind { PROFILE, BANNER, POST_IMAGE, STATIC, DOCUMENT, PRODUCT, ARTIFACT, OBITUARY }
+    public enum AssetKind { PROFILE, BANNER, STATIC, DOCUMENT, PRODUCT, ARTIFACT, OBITUARY }
 
     private static final Set<String> ALLOWED_MEDIA_TYPES = Set.of(
             MediaType.IMAGE_JPEG_VALUE,
@@ -189,9 +189,6 @@ public class CdnUploadService {
                 break;
             case BANNER:
                 folder = "banner/";
-                break;
-            case POST_IMAGE:
-                folder = "posts/";
                 break;
             case STATIC:
                 folder = "static/";

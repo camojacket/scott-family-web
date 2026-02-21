@@ -150,14 +150,6 @@ public class DTOs {
         public OffsetDateTime requestedAt;
     }
 
-    public record CommentDto(
-            Long id,
-            Long postId,
-            String author,
-            String content,
-            String createdAt
-    ) {}
-
     /** Info about one spouse relationship: the spouse node + which children belong to this couple. */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record SpouseInfoDto(
@@ -179,8 +171,6 @@ public class DTOs {
             Boolean deceased,
             String parentRelation   // e.g. BIOLOGICAL_FATHER, FOSTER_MOTHER, STEP_FATHER, …
     ) {}
-
-    public record PaymentRequest(String sourceId, long amount, String currency, String email) {}
 
     public record LoginRequest(
             @NotBlank(message = "Username is required") String username,
