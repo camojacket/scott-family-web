@@ -30,6 +30,8 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import GroupIcon from '@mui/icons-material/Group';
 import SaveIcon from '@mui/icons-material/Save';
 import SettingsIcon from '@mui/icons-material/Settings';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { apiFetch } from '../lib/api';
 import { useAuth } from '../lib/useAuth';
 import { useFamilyName } from '../lib/FamilyNameContext';
@@ -81,6 +83,7 @@ export default function DuesPage() {
 
   // ── Pricing tiers ──
   const [pricingTiers, setPricingTiers] = useState<PricingTierDto[]>([]);
+  const [pricingScheduleOpen, setPricingScheduleOpen] = useState(false);
 
   // The amount for the logged-in user (server resolves by that user's DOB)
   const selfAmountCents = pageData?.duesAmountCents ?? FALLBACK_AMOUNT_CENTS;
@@ -708,10 +711,73 @@ export default function DuesPage() {
               </Typography>
             </Box>
 
-            <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mb: 2 }}>
+            <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mb: pricingTiers.length > 0 ? 1 : 2 }}>
               Pay your own dues and/or pay on behalf of family members.
               {pricingTiers.length > 0 ? ' Pricing varies by age.' : ` Each person\u2019s dues are ${formatCents(selfAmountCents)}.`}
             </Typography>
+
+            {pricingTiers.length > 0 && (
+              <Box sx={{ mb: 2 }}>
+                <Button
+                  size="small"
+                  startIcon={<InfoOutlinedIcon fontSize="small" />}
+                  endIcon={
+                    <ExpandMoreIcon
+                      fontSize="small"
+                      sx={{
+                        transform: pricingScheduleOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                        transition: 'transform 0.2s',
+                      }}
+                    />
+                  }
+                  onClick={() => setPricingScheduleOpen(prev => !prev)}
+                  sx={{ textTransform: 'none', color: 'var(--color-primary-500)', fontWeight: 600, px: 0.5 }}
+                >
+                  View pricing details
+                </Button>
+                <Collapse in={pricingScheduleOpen}>
+                  <Paper
+                    variant="outlined"
+                    sx={{
+                      mt: 1,
+                      p: 2,
+                      borderColor: 'var(--color-primary-100)',
+                      backgroundColor: 'var(--color-primary-50, rgba(0,0,0,0.02))',
+                    }}
+                  >
+                    <Stack spacing={0.75}>
+                      {pricingTiers.map((tier, idx) => {
+                        const ageRange =
+                          tier.minAge != null && tier.maxAge != null
+                            ? `Ages ${tier.minAge}\u2013${tier.maxAge}`
+                            : tier.minAge != null
+                              ? `Ages ${tier.minAge}+`
+                              : tier.maxAge != null
+                                ? `Ages ${tier.maxAge} & under`
+                                : 'All ages';
+                        return (
+                          <Box
+                            key={tier.id ?? idx}
+                            sx={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                              {tier.label}
+                            </Typography>
+                            <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>
+                              {ageRange} &mdash; {formatCents(tier.amountCents)}
+                            </Typography>
+                          </Box>
+                        );
+                      })}
+                    </Stack>
+                  </Paper>
+                </Collapse>
+              </Box>
+            )}
 
             {/* Pay for self checkbox */}
             {!pageData?.selfPaid && (
