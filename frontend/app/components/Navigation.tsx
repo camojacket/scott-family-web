@@ -47,6 +47,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import ErrorBoundary from './ErrorBoundary';
 import AnnouncementBanner from './AnnouncementBanner';
 import NotificationBell from './NotificationBell';
+import NotificationOptInPrompt from './NotificationOptInPrompt';
 import SessionTimeoutDialog from './SessionTimeoutDialog';
 import { useSessionTimeout } from '../lib/useSessionTimeout';
 import { useFamilyName } from '../lib/FamilyNameContext';
@@ -529,6 +530,9 @@ export default function Navigation({ children }: { children: React.ReactNode }) 
 
       {/* ── Announcement Banner ────────────────────────────────── */}
       {isLoggedIn && <AnnouncementBanner />}
+
+      {/* ── Notification Opt-In Prompt ─────────────────────────── */}
+      <NotificationOptInPrompt />
 
       {/* ── Page Content ───────────────────────────────────────── */}
       <Box

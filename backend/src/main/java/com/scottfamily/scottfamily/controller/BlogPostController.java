@@ -5,6 +5,7 @@ import com.scottfamily.scottfamily.service.BlogPostService.BlogPostDto;
 import com.scottfamily.scottfamily.service.BlogPostService.ReactionResult;
 import com.scottfamily.scottfamily.service.UserHelper;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.*;
@@ -23,6 +24,7 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping("/api/blog-posts")
+@PreAuthorize("isAuthenticated()")
 public class BlogPostController {
 
     private final BlogPostService blogPostService;

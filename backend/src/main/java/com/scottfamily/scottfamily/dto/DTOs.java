@@ -267,7 +267,10 @@ public class DTOs {
             LocalDate fatherDateOfBirth,
 
             // (optional): claim an existing person profile during signup
-            Long claimPersonId
+            Long claimPersonId,
+
+            // (optional): phone number for SMS notifications
+            String phoneNumber
     ) {}
 
     /** Returned by the signup endpoint so the frontend knows whether the account was auto-approved. */

@@ -1,5 +1,6 @@
 package com.scottfamily.scottfamily.controller;
 
+import com.scottfamily.scottfamily.security.LoginRateLimiter;
 import com.scottfamily.scottfamily.service.DuesService;
 import com.scottfamily.scottfamily.service.DuesService.*;
 import com.scottfamily.scottfamily.service.DuePeriodService;
@@ -7,6 +8,8 @@ import com.scottfamily.scottfamily.service.DuePeriodService.DuePeriodDto;
 import com.scottfamily.scottfamily.service.DuesPricingService;
 import com.scottfamily.scottfamily.service.DuesPricingService.PricingTierDto;
 import com.scottfamily.scottfamily.service.UserHelper;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -62,10 +65,19 @@ public class DuesController {
     @PostMapping("/pay")
     public ResponseEntity<?> initiatePayment(
             @RequestBody PayRequest request,
-            Authentication auth
+            Authentication auth,
+            HttpServletRequest httpRequest
     ) {
         Long userId = userHelper.resolveUserId(auth.getName());
         if (userId == null) return ResponseEntity.status(403).body(Map.of("error", "Could not resolve user"));
+
+        String clientIp = getClientIp(httpRequest);
+        LoginRateLimiter.RateLimitResult rateCheck = LoginRateLimiter.check(clientIp);
+        if (!rateCheck.allowed()) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(Map.of(
+                    "error", "Too many requests. Please try again in " + rateCheck.retryAfterSeconds() + " seconds."));
+        }
+        LoginRateLimiter.recordFailure(clientIp);
 
         int year = periodService.resolveReunionYear();
 
@@ -85,10 +97,19 @@ public class DuesController {
     @PostMapping("/confirm")
     public ResponseEntity<?> confirmPayment(
             @RequestBody ConfirmRequest request,
-            Authentication auth
+            Authentication auth,
+            HttpServletRequest httpRequest
     ) {
         Long userId = userHelper.resolveUserId(auth.getName());
         if (userId == null) return ResponseEntity.status(403).body(Map.of("error", "Could not resolve user"));
+
+        String clientIp = getClientIp(httpRequest);
+        LoginRateLimiter.RateLimitResult rateCheck = LoginRateLimiter.check(clientIp);
+        if (!rateCheck.allowed()) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(Map.of(
+                    "error", "Too many requests. Please try again in " + rateCheck.retryAfterSeconds() + " seconds."));
+        }
+        LoginRateLimiter.recordFailure(clientIp);
 
         if (request.batchId == null || request.batchId.isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("error", "batchId is required"));
@@ -245,5 +266,13 @@ public class DuesController {
     public static class SavePricingRequest {
         public Integer reunionYear;
         public List<PricingTierDto> tiers;
+    }
+
+    private String getClientIp(HttpServletRequest request) {
+        String xff = request.getHeader("X-Forwarded-For");
+        if (xff != null && !xff.isBlank()) {
+            return xff.split(",")[0].trim();
+        }
+        return request.getRemoteAddr();
     }
 }

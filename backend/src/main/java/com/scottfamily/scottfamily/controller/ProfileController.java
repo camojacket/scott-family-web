@@ -2,9 +2,12 @@
 package com.scottfamily.scottfamily.controller;
 
 import com.scottfamily.scottfamily.dto.DTOs;
+import com.scottfamily.scottfamily.service.UserHelper;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
@@ -21,6 +24,7 @@ import static com.yourproject.generated.scott_family_web.Tables.USERS;
 public class ProfileController {
 
     private final DSLContext dsl;
+    private final UserHelper userHelper;
 
     // Inline field refs for PEOPLE columns not yet in generated jOOQ classes
     private static final org.jooq.Field<String> P_MIDDLE_NAME        = DSL.field(DSL.name("middle_name"),        String.class);
@@ -49,7 +53,14 @@ public class ProfileController {
      * This endpoint resolves the user's person_id, then writes directly to PEOPLE.
      */
     @PutMapping("/{userId}")
-    public void update(@PathVariable Long userId, @RequestBody UpdateProfile body) {
+    public ResponseEntity<?> update(@PathVariable Long userId, @RequestBody UpdateProfile body, Authentication auth) {
+        Long authenticatedId = userHelper.resolveUserId(auth);
+        boolean isAdmin = auth != null && auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+        if (!isAdmin && !userId.equals(authenticatedId)) {
+            return ResponseEntity.status(403).build();
+        }
+
         // Resolve person_id from user
         Long personId = dsl.select(USERS.PERSON_ID).from(USERS)
                 .where(USERS.ID.eq(userId)).fetchOneInto(Long.class);
@@ -89,5 +100,6 @@ public class ProfileController {
             }
             upd.where(PEOPLE.ID.eq(personId)).execute();
         }
+        return ResponseEntity.ok().build();
     }
 }

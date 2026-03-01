@@ -51,6 +51,7 @@ public class AuthService {
     private static final Field<String>                   U_BAN_REASON   = DSL.field(DSL.name("ban_reason"),   String.class);
     private static final Field<Long>                     U_ARCHIVED_CLAIM_PERSON_ID = DSL.field(DSL.name("archived_claim_person_id"), Long.class);
     private static final Field<Boolean>                  IS_ARCHIVED    = DSL.field(DSL.name("is_archived"), Boolean.class);
+    private static final Field<String>                   U_PHONE_NUMBER = DSL.field(DSL.name("phone_number"), String.class);
 
     public DTOs.ProfileDto authenticate(DTOs.LoginRequest req) {
         UsersRecord user = dsl.selectFrom(USERS)
@@ -213,6 +214,14 @@ public class AuthService {
             }
 
             u.store();
+
+            // Save phone number if provided
+            if (req.phoneNumber() != null && !req.phoneNumber().isBlank()) {
+                d.update(USERS)
+                        .set(U_PHONE_NUMBER, req.phoneNumber().trim())
+                        .where(USERS.ID.eq(u.getId()))
+                        .execute();
+            }
 
             // If this is an archived claim, record it on the user row for admin visibility
             if (isArchivedClaim) {

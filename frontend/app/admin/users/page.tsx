@@ -212,6 +212,16 @@ export default function AdminUsersPage() {
     }
   }
 
+  async function handleReset2FA(user: AdminUserItem) {
+    if (!confirm(`Reset two-factor authentication for "${user.username}"? They will need to set it up again.`)) return;
+    try {
+      await apiFetch(`/api/admin/2fa/reset/${user.id}`, { method: 'POST' });
+      setMsg({ type: 'success', text: `Two-factor authentication reset for "${user.username}".` });
+    } catch (e: unknown) {
+      setMsg({ type: 'error', text: (e as Error)?.message || '2FA reset failed' });
+    }
+  }
+
   async function handleToggleRole(user: AdminUserItem) {
     const newRole = user.userRole === 'ROLE_ADMIN' ? 'ROLE_USER' : 'ROLE_ADMIN';
     const label = newRole === 'ROLE_ADMIN' ? 'Admin' : 'User';
@@ -389,6 +399,14 @@ export default function AdminUsersPage() {
                                 Ban
                               </Button>
                             )}
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              color="info"
+                              onClick={() => handleReset2FA(u)}
+                            >
+                              Reset 2FA
+                            </Button>
                             <Button
                               size="small"
                               variant="outlined"

@@ -94,7 +94,7 @@ public class SquareWebhookController {
                 return ResponseEntity.ok(Map.of("error", "Invalid signature", "received", false));
             }
         } else {
-            log.warn("Square webhook: signature key not configured, skipping verification (NOT for production!)");
+            return ResponseEntity.status(403).body(Map.of("error", "Webhook signature key not configured"));
         }
 
         try {

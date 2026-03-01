@@ -2,8 +2,9 @@
 
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Box, Button, TextField, Alert, Stack, Link, Typography } from '@mui/material';
-import { apiFetch } from '../lib/api';
+import { Box, Button, TextField, Alert, Stack, Link, Typography, Divider } from '@mui/material';
+import LockIcon from '@mui/icons-material/Lock';
+import { apiFetch, ApiError } from '../lib/api';
 import { useFamilyName } from '../lib/FamilyNameContext';
 
 export default function LoginPage() {
@@ -32,6 +33,13 @@ export default function LoginPage() {
   );
   const [loading, setLoading] = useState(false);
   const [isReturning, setIsReturning] = useState(false);
+
+  // ── 2FA state ────────────────────────────────────────────────────
+  const [twoFactorRequired, setTwoFactorRequired] = useState(false);
+  const [maskedPhone, setMaskedPhone] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [useBackupCode, setUseBackupCode] = useState(false);
+  const [resending, setResending] = useState(false);
 
   useEffect(() => {
     setIsReturning(localStorage.getItem('hasLoggedIn') === 'true');
@@ -89,6 +97,15 @@ export default function LoginPage() {
       }
 
       const profile = await resp.json();
+
+      // ── 2FA required? ────────────────────────────────────────────
+      if (profile.twoFactorRequired) {
+        setTwoFactorRequired(true);
+        setMaskedPhone(profile.maskedPhone || '');
+        setMsg({ type: 'info', text: `A verification code has been sent to ${profile.maskedPhone || 'your phone'}.` });
+        return;
+      }
+
       localStorage.setItem('profile', JSON.stringify(profile));
       localStorage.setItem('hasLoggedIn', 'true');
       window.dispatchEvent(new Event('profile-updated'));
@@ -122,6 +139,160 @@ export default function LoginPage() {
     }
   }
 
+  async function onVerify2fa(e: React.FormEvent) {
+    e.preventDefault();
+    setMsg(null);
+    setLoading(true);
+    try {
+      const profile = await apiFetch<Record<string, unknown>>(
+        '/api/auth/verify-2fa',
+        { method: 'POST', body: { code: otpCode, useBackupCode: useBackupCode ? 'true' : 'false' } }
+      );
+      localStorage.setItem('profile', JSON.stringify(profile));
+      localStorage.setItem('hasLoggedIn', 'true');
+      window.dispatchEvent(new Event('profile-updated'));
+      router.replace(next);
+    } catch (err: unknown) {
+      if (err instanceof ApiError) {
+        try {
+          const data = JSON.parse(err.body);
+          setMsg({ type: 'error', text: data.message || 'Verification failed.' });
+        } catch {
+          setMsg({ type: 'error', text: 'Verification failed.' });
+        }
+      } else {
+        setMsg({ type: 'error', text: (err as Error)?.message || 'Verification failed.' });
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function onResendCode() {
+    setResending(true);
+    try {
+      await apiFetch('/api/auth/resend-2fa', { method: 'POST' });
+      setMsg({ type: 'info', text: 'A new code has been sent to your phone.' });
+    } catch (err: unknown) {
+      if (err instanceof ApiError) {
+        try {
+          const data = JSON.parse(err.body);
+          setMsg({ type: 'error', text: data.message || 'Failed to resend code. Please try again.' });
+        } catch {
+          setMsg({ type: 'error', text: 'Failed to resend code. Please try again.' });
+        }
+      } else {
+        setMsg({ type: 'error', text: 'Failed to resend code.' });
+      }
+    } finally {
+      setResending(false);
+    }
+  }
+
+  function onBack() {
+    setTwoFactorRequired(false);
+    setOtpCode('');
+    setUseBackupCode(false);
+    setMsg(null);
+  }
+
+  // ── 2FA Verification View ──────────────────────────────────────────
+  if (twoFactorRequired) {
+    return (
+      <Box sx={{ maxWidth: 440, mx: 'auto', py: { xs: 4, sm: 8 } }}>
+        <Box sx={{ textAlign: 'center', mb: 4 }}>
+          <LockIcon sx={{ fontSize: 48, color: 'var(--color-primary-500)', mb: 1 }} />
+          <Typography
+            variant="h4"
+            sx={{ fontWeight: 800, color: 'var(--color-primary-700)', letterSpacing: '-0.02em', mb: 0.5 }}
+          >
+            Two-Factor Authentication
+          </Typography>
+          <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>
+            {useBackupCode
+              ? 'Enter one of your backup codes'
+              : `Enter the 6-digit code sent to ${maskedPhone}`}
+          </Typography>
+        </Box>
+
+        <Box className="card" sx={{ p: { xs: 3, sm: 4 } }}>
+          {msg && <Alert severity={msg.type === 'info' ? 'info' : msg.type} sx={{ mb: 3, whiteSpace: 'pre-line' }}>{msg.text}</Alert>}
+          <form onSubmit={onVerify2fa}>
+            <Stack spacing={2.5}>
+              <TextField
+                label={useBackupCode ? 'Backup Code' : 'Verification Code'}
+                value={otpCode}
+                onChange={(e) => setOtpCode(e.target.value)}
+                required
+                fullWidth
+                autoFocus
+                placeholder={useBackupCode ? 'XXXX-XXXX' : '000000'}
+                inputProps={{
+                  maxLength: useBackupCode ? 10 : 6,
+                  style: { textAlign: 'center', fontSize: '1.5rem', letterSpacing: '0.3em' },
+                }}
+              />
+              <Button
+                type="submit"
+                variant="contained"
+                disabled={loading}
+                fullWidth
+                size="large"
+                sx={{
+                  bgcolor: 'var(--color-primary-500)',
+                  '&:hover': { bgcolor: 'var(--color-primary-600)' },
+                  py: 1.25,
+                }}
+              >
+                {loading ? 'Verifying…' : 'Verify'}
+              </Button>
+
+              {!useBackupCode && (
+                <Stack direction="row" spacing={2} sx={{ justifyContent: 'center' }}>
+                  <Link
+                    component="button"
+                    type="button"
+                    onClick={onResendCode}
+                    disabled={resending}
+                    sx={{ fontSize: '0.82rem', color: 'var(--color-primary-500)' }}
+                  >
+                    {resending ? 'Sending…' : 'Resend code'}
+                  </Link>
+                </Stack>
+              )}
+
+              <Divider sx={{ my: 1 }} />
+
+              <Stack direction="row" spacing={2} sx={{ justifyContent: 'center' }}>
+                <Link
+                  component="button"
+                  type="button"
+                  onClick={() => {
+                    setUseBackupCode(!useBackupCode);
+                    setOtpCode('');
+                    setMsg(null);
+                  }}
+                  sx={{ fontSize: '0.82rem', color: 'var(--color-primary-500)' }}
+                >
+                  {useBackupCode ? 'Use SMS code instead' : 'Use a backup code'}
+                </Link>
+                <Link
+                  component="button"
+                  type="button"
+                  onClick={onBack}
+                  sx={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}
+                >
+                  Back to login
+                </Link>
+              </Stack>
+            </Stack>
+          </form>
+        </Box>
+      </Box>
+    );
+  }
+
+  // ── Normal Login View ──────────────────────────────────────────────
   return (
     <Box sx={{ maxWidth: 440, mx: 'auto', py: { xs: 4, sm: 8 } }}>
       <Box sx={{ textAlign: 'center', mb: 4 }}>

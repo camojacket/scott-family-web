@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Set;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -39,6 +40,9 @@ import com.scottfamily.scottfamily.service.UserHelper;
 @RestController
 @RequestMapping("/api/gallery")
 public class GalleryController {
+
+    private static final Set<String> ALLOWED_IMAGE_TYPES = Set.of(
+            "image/jpeg", "image/png", "image/webp", "image/gif", "image/heic");
 
     private final GalleryService galleryService;
     private final UserHelper userHelper;
@@ -83,6 +87,10 @@ public class GalleryController {
         List<String> errors = new ArrayList<>();
 
         for (RegisterRequest.ImageMeta meta : request.images) {
+            if (meta.contentType == null || !ALLOWED_IMAGE_TYPES.contains(meta.contentType.toLowerCase())) {
+                errors.add(meta.fileName + ": unsupported content type: " + meta.contentType);
+                continue;
+            }
             try {
                 LocalDate imageDate = (meta.imageDate != null && !meta.imageDate.isBlank())
                         ? LocalDate.parse(meta.imageDate) : null;

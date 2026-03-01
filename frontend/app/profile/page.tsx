@@ -6,13 +6,16 @@ import {
   Box,
   Button,
   Chip,
+  CircularProgress,
   Divider,
   FormControl,
+  FormControlLabel,
   IconButton,
   InputLabel,
   MenuItem,
   Select,
   Stack,
+  Switch,
   TextField,
   Typography,
 } from '@mui/material';
@@ -21,6 +24,14 @@ import LogoutIcon from '@mui/icons-material/Logout';
 import LockResetIcon from '@mui/icons-material/LockReset';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
+import NotificationsIcon from '@mui/icons-material/Notifications';
+import NotificationsOffIcon from '@mui/icons-material/NotificationsOff';
+import EmailIcon from '@mui/icons-material/Email';
+import SmsIcon from '@mui/icons-material/Sms';
+import SecurityIcon from '@mui/icons-material/Security';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { apiFetch, uploadForUser } from '../lib/api';
 import { useAuth } from '../lib/useAuth';
 import PersonAutocomplete from '../components/PersonAutocomplete';
@@ -103,6 +114,27 @@ export default function MeProfilePage() {
   type SpouseSlot = { key: string; personId: number | null; relation: string };
   const [spouseSlots, setSpouseSlots] = useState<SpouseSlot[]>([]);
 
+  // Notification preferences
+  const [notifEmailOpt, setNotifEmailOpt] = useState(true);
+  const [notifSmsOpt, setNotifSmsOpt] = useState(false);
+  const [notifPhone, setNotifPhone] = useState('');
+  const [notifLoading, setNotifLoading] = useState(false);
+  const [notifMsg, setNotifMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Two-Factor Authentication
+  const [tfaEnabled, setTfaEnabled] = useState(false);
+  const [tfaMaskedPhone, setTfaMaskedPhone] = useState<string | null>(null);
+  const [tfaBackupRemaining, setTfaBackupRemaining] = useState(0);
+  const [tfaLoading, setTfaLoading] = useState(false);
+  const [tfaMsg, setTfaMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+  const [tfaPhone, setTfaPhone] = useState('');
+  const [tfaEnablePassword, setTfaEnablePassword] = useState('');
+  const [tfaShowDisable, setTfaShowDisable] = useState(false);
+  const [tfaDisablePassword, setTfaDisablePassword] = useState('');
+  const [tfaBackupCodes, setTfaBackupCodes] = useState<string[] | null>(null);
+  const [tfaRegenPassword, setTfaRegenPassword] = useState('');
+  const [tfaShowRegen, setTfaShowRegen] = useState(false);
+
   // Full profile data (parents, children, siblings, spouses) from /api/profile/{personId}
   const [fullProfile, setFullProfile] = useState<FullProfile | null>(null);
 
@@ -159,10 +191,134 @@ export default function MeProfilePage() {
       .catch(() => {});
   }, [me?.personId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Fetch notification preferences
+  useEffect(() => {
+    apiFetch<{ emailOptIn: boolean; smsOptIn: boolean; phoneNumber: string | null }>('/api/notification-preferences')
+      .then((prefs) => {
+        setNotifEmailOpt(prefs.emailOptIn);
+        setNotifSmsOpt(prefs.smsOptIn);
+        setNotifPhone(prefs.phoneNumber ?? '');
+      })
+      .catch(() => {});
+  }, []);
+
+  async function saveNotificationPrefs() {
+    setNotifLoading(true);
+    setNotifMsg(null);
+    try {
+      const updated = await apiFetch<{ emailOptIn: boolean; smsOptIn: boolean; phoneNumber: string | null }>(
+        '/api/notification-preferences',
+        {
+          method: 'PUT',
+          body: { emailOptIn: notifEmailOpt, smsOptIn: notifSmsOpt, phoneNumber: notifPhone },
+        },
+      );
+      setNotifEmailOpt(updated.emailOptIn);
+      setNotifSmsOpt(updated.smsOptIn);
+      setNotifPhone(updated.phoneNumber ?? '');
+      setNotifMsg({ type: 'success', text: 'Notification preferences saved.' });
+    } catch (e: unknown) {
+      setNotifMsg({ type: 'error', text: (e as Error)?.message || 'Failed to save notification preferences.' });
+    } finally {
+      setNotifLoading(false);
+    }
+  }
+
   // Derive pending labels for specific fields
   const pendingMotherLabel = pendingChanges.find((c) => c.field === 'mother_id')?.label;
   const pendingFatherLabel = pendingChanges.find((c) => c.field === 'father_id')?.label;
   const pendingChildren = pendingChanges.filter((c) => c.field === 'add_child');
+
+  // Fetch 2FA status
+  useEffect(() => {
+    apiFetch<{ enabled: boolean; maskedPhone: string | null; backupCodesRemaining: number }>('/api/2fa/status')
+      .then((s) => {
+        setTfaEnabled(s.enabled);
+        setTfaMaskedPhone(s.maskedPhone);
+        setTfaBackupRemaining(s.backupCodesRemaining);
+      })
+      .catch(() => {});
+  }, []);
+
+  async function enableTfa() {
+    if (!tfaPhone.trim()) {
+      setTfaMsg({ type: 'error', text: 'Please enter a phone number.' });
+      return;
+    }
+    if (!tfaEnablePassword) {
+      setTfaMsg({ type: 'error', text: 'Please enter your password to confirm.' });
+      return;
+    }
+    setTfaLoading(true);
+    setTfaMsg(null);
+    try {
+      const res = await apiFetch<{ enabled: boolean; maskedPhone: string; backupCodes: string[] }>(
+        '/api/2fa/enable',
+        { method: 'POST', body: { phoneNumber: tfaPhone.trim(), password: tfaEnablePassword } },
+      );
+      setTfaEnabled(res.enabled);
+      setTfaMaskedPhone(res.maskedPhone);
+      setTfaBackupCodes(res.backupCodes);
+      setTfaBackupRemaining(res.backupCodes.length);
+      setTfaPhone('');
+      setTfaEnablePassword('');
+      setTfaMsg({ type: 'success', text: 'Two-factor authentication enabled! Save your backup codes now.' });
+    } catch (e: unknown) {
+      setTfaMsg({ type: 'error', text: (e as Error)?.message || 'Failed to enable 2FA.' });
+    } finally {
+      setTfaLoading(false);
+    }
+  }
+
+  async function disableTfa() {
+    if (!tfaDisablePassword) {
+      setTfaMsg({ type: 'error', text: 'Please enter your password to disable 2FA.' });
+      return;
+    }
+    setTfaLoading(true);
+    setTfaMsg(null);
+    try {
+      await apiFetch('/api/2fa/disable', {
+        method: 'POST',
+        body: { password: tfaDisablePassword },
+      });
+      setTfaEnabled(false);
+      setTfaMaskedPhone(null);
+      setTfaBackupRemaining(0);
+      setTfaBackupCodes(null);
+      setTfaShowDisable(false);
+      setTfaDisablePassword('');
+      setTfaMsg({ type: 'info', text: 'Two-factor authentication has been disabled.' });
+    } catch (e: unknown) {
+      setTfaMsg({ type: 'error', text: (e as Error)?.message || 'Failed to disable 2FA.' });
+    } finally {
+      setTfaLoading(false);
+    }
+  }
+
+  async function regenerateBackupCodes() {
+    if (!tfaRegenPassword) {
+      setTfaMsg({ type: 'error', text: 'Please enter your password to regenerate codes.' });
+      return;
+    }
+    setTfaLoading(true);
+    setTfaMsg(null);
+    try {
+      const res = await apiFetch<{ backupCodes: string[] }>('/api/2fa/regenerate-codes', {
+        method: 'POST',
+        body: { password: tfaRegenPassword },
+      });
+      setTfaBackupCodes(res.backupCodes);
+      setTfaBackupRemaining(res.backupCodes.length);
+      setTfaShowRegen(false);
+      setTfaRegenPassword('');
+      setTfaMsg({ type: 'success', text: 'New backup codes generated. Save them now — old codes are invalidated.' });
+    } catch (e: unknown) {
+      setTfaMsg({ type: 'error', text: (e as Error)?.message || 'Failed to regenerate backup codes.' });
+    } finally {
+      setTfaLoading(false);
+    }
+  }
 
   async function logout() {
     try {
@@ -973,6 +1129,309 @@ export default function MeProfilePage() {
           </Stack>
         </Box>
       )}
+
+      {/* ── Notification Preferences ────────────────────────────────── */}
+      <Box className="card" sx={{ p: { xs: 2, sm: 3 }, mt: 3 }}>
+        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
+          <NotificationsIcon sx={{ color: 'var(--color-primary-600)' }} />
+          <Typography variant="h6" sx={{ fontWeight: 700, color: 'var(--color-primary-700)' }}>
+            Notification Preferences
+          </Typography>
+        </Stack>
+        <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mb: 2 }}>
+          Choose how you&apos;d like to receive updates and announcements from the family reunion.
+        </Typography>
+
+        {notifMsg && (
+          <Alert severity={notifMsg.type} sx={{ mb: 2 }} onClose={() => setNotifMsg(null)}>
+            {notifMsg.text}
+          </Alert>
+        )}
+
+        <Stack spacing={2}>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={notifEmailOpt}
+                onChange={(e) => setNotifEmailOpt(e.target.checked)}
+                color="primary"
+              />
+            }
+            label={
+              <Stack direction="row" alignItems="center" spacing={1}>
+                <EmailIcon fontSize="small" sx={{ color: notifEmailOpt ? 'var(--color-primary-600)' : 'var(--color-gray-400)' }} />
+                <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                  Email notifications
+                </Typography>
+              </Stack>
+            }
+          />
+
+          <FormControlLabel
+            control={
+              <Switch
+                checked={notifSmsOpt}
+                onChange={(e) => setNotifSmsOpt(e.target.checked)}
+                color="primary"
+              />
+            }
+            label={
+              <Stack direction="row" alignItems="center" spacing={1}>
+                <SmsIcon fontSize="small" sx={{ color: notifSmsOpt ? 'var(--color-primary-600)' : 'var(--color-gray-400)' }} />
+                <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                  Text (SMS) notifications
+                </Typography>
+              </Stack>
+            }
+          />
+
+          {notifSmsOpt && (
+            <TextField
+              label="Phone number"
+              value={notifPhone}
+              onChange={(e) => setNotifPhone(e.target.value)}
+              placeholder="+1 (555) 123-4567"
+              size="small"
+              helperText="Required for SMS notifications. Include country code."
+              sx={{ maxWidth: 300 }}
+            />
+          )}
+
+          {!notifEmailOpt && !notifSmsOpt && (
+            <Stack direction="row" alignItems="center" spacing={1}>
+              <NotificationsOffIcon fontSize="small" sx={{ color: 'var(--color-gray-400)' }} />
+              <Typography variant="body2" sx={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>
+                You are opted out of all notifications.
+              </Typography>
+            </Stack>
+          )}
+
+          <Button
+            variant="contained"
+            size="small"
+            onClick={saveNotificationPrefs}
+            disabled={notifLoading || (notifSmsOpt && !notifPhone.trim())}
+            sx={{
+              alignSelf: 'flex-start',
+              bgcolor: 'var(--color-primary-500)',
+              '&:hover': { bgcolor: 'var(--color-primary-600)' },
+            }}
+          >
+            {notifLoading ? <CircularProgress size={20} sx={{ color: 'white' }} /> : 'Save Preferences'}
+          </Button>
+        </Stack>
+      </Box>
+
+      {/* Two-Factor Authentication */}
+      <Box className="card" sx={{ p: 3, borderRadius: 2 }}>
+        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
+          <SecurityIcon sx={{ color: tfaEnabled ? 'var(--color-primary-600)' : 'var(--color-gray-400)' }} />
+          <Typography variant="h6" sx={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+            Two-Factor Authentication
+          </Typography>
+          {tfaEnabled && (
+            <Chip label="Enabled" size="small" color="success" sx={{ ml: 1 }} />
+          )}
+        </Stack>
+
+        <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mb: 2 }}>
+          Add an extra layer of security to your account. When enabled, you&apos;ll need to enter a verification code
+          sent to your phone each time you sign in.
+        </Typography>
+
+        {tfaMsg && (
+          <Alert severity={tfaMsg.type === 'info' ? 'info' : tfaMsg.type} sx={{ mb: 2 }} onClose={() => setTfaMsg(null)}>
+            {tfaMsg.text}
+          </Alert>
+        )}
+
+        {!tfaEnabled ? (
+          /* ── Enable 2FA ── */
+          <Stack spacing={2}>
+            <TextField
+              label="Phone number for verification codes"
+              value={tfaPhone}
+              onChange={(e) => setTfaPhone(e.target.value)}
+              placeholder="+1 (555) 123-4567"
+              size="small"
+              helperText="Your phone number will be used exclusively for login verification codes."
+              sx={{ maxWidth: 340 }}
+            />
+            <TextField
+              label="Confirm your password"
+              type="password"
+              value={tfaEnablePassword}
+              onChange={(e) => setTfaEnablePassword(e.target.value)}
+              size="small"
+              helperText="Required to confirm this security change."
+              sx={{ maxWidth: 340 }}
+            />
+            <Button
+              variant="contained"
+              size="small"
+              onClick={enableTfa}
+              disabled={tfaLoading || !tfaPhone.trim() || !tfaEnablePassword}
+              startIcon={<SecurityIcon />}
+              sx={{
+                alignSelf: 'flex-start',
+                bgcolor: 'var(--color-primary-500)',
+                '&:hover': { bgcolor: 'var(--color-primary-600)' },
+              }}
+            >
+              {tfaLoading ? <CircularProgress size={20} sx={{ color: 'white' }} /> : 'Enable Two-Factor Auth'}
+            </Button>
+          </Stack>
+        ) : (
+          /* ── 2FA Enabled State ── */
+          <Stack spacing={2}>
+            <Stack direction="row" alignItems="center" spacing={1}>
+              <CheckCircleIcon fontSize="small" sx={{ color: 'green' }} />
+              <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                Verification codes are sent to {tfaMaskedPhone}
+              </Typography>
+            </Stack>
+
+            <Stack direction="row" alignItems="center" spacing={1}>
+              {tfaBackupRemaining > 3 ? (
+                <CheckCircleIcon fontSize="small" sx={{ color: 'green' }} />
+              ) : (
+                <WarningAmberIcon fontSize="small" sx={{ color: tfaBackupRemaining === 0 ? 'red' : 'orange' }} />
+              )}
+              <Typography variant="body2">
+                {tfaBackupRemaining} backup {tfaBackupRemaining === 1 ? 'code' : 'codes'} remaining
+              </Typography>
+            </Stack>
+
+            <Divider sx={{ my: 1 }} />
+
+            {/* Backup Codes Display */}
+            {tfaBackupCodes && (
+              <Box sx={{
+                p: 2,
+                bgcolor: 'var(--color-gray-50)',
+                border: '1px solid var(--color-gray-200)',
+                borderRadius: 1,
+              }}>
+                <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                    Backup Codes
+                  </Typography>
+                  <Button
+                    size="small"
+                    startIcon={<ContentCopyIcon />}
+                    onClick={() => {
+                      navigator.clipboard.writeText(tfaBackupCodes.join('\n'));
+                      setTfaMsg({ type: 'success', text: 'Backup codes copied to clipboard.' });
+                    }}
+                  >
+                    Copy All
+                  </Button>
+                </Stack>
+                <Typography variant="caption" sx={{ color: 'var(--text-secondary)', display: 'block', mb: 1 }}>
+                  Save these codes in a safe place. Each code can only be used once. These codes will not be shown again.
+                </Typography>
+                <Box sx={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(2, 1fr)',
+                  gap: 0.5,
+                  fontFamily: 'monospace',
+                  fontSize: '0.875rem',
+                }}>
+                  {tfaBackupCodes.map((code, i) => (
+                    <Typography key={i} variant="body2" sx={{ fontFamily: 'monospace', letterSpacing: 1 }}>
+                      {code}
+                    </Typography>
+                  ))}
+                </Box>
+              </Box>
+            )}
+
+            {/* Regenerate Backup Codes */}
+            {!tfaShowRegen ? (
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => setTfaShowRegen(true)}
+                sx={{ alignSelf: 'flex-start' }}
+              >
+                Regenerate Backup Codes
+              </Button>
+            ) : (
+              <Stack spacing={1} sx={{ maxWidth: 340 }}>
+                <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>
+                  This will invalidate all existing backup codes. Enter your password to confirm.
+                </Typography>
+                <TextField
+                  label="Password"
+                  type="password"
+                  value={tfaRegenPassword}
+                  onChange={(e) => setTfaRegenPassword(e.target.value)}
+                  size="small"
+                />
+                <Stack direction="row" spacing={1}>
+                  <Button
+                    variant="contained"
+                    size="small"
+                    onClick={regenerateBackupCodes}
+                    disabled={tfaLoading || !tfaRegenPassword}
+                    sx={{
+                      bgcolor: 'var(--color-primary-500)',
+                      '&:hover': { bgcolor: 'var(--color-primary-600)' },
+                    }}
+                  >
+                    {tfaLoading ? <CircularProgress size={18} sx={{ color: 'white' }} /> : 'Regenerate'}
+                  </Button>
+                  <Button size="small" onClick={() => { setTfaShowRegen(false); setTfaRegenPassword(''); }}>
+                    Cancel
+                  </Button>
+                </Stack>
+              </Stack>
+            )}
+
+            <Divider sx={{ my: 1 }} />
+
+            {/* Disable 2FA */}
+            {!tfaShowDisable ? (
+              <Button
+                variant="outlined"
+                color="error"
+                size="small"
+                onClick={() => setTfaShowDisable(true)}
+                sx={{ alignSelf: 'flex-start' }}
+              >
+                Disable Two-Factor Auth
+              </Button>
+            ) : (
+              <Stack spacing={1} sx={{ maxWidth: 340 }}>
+                <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>
+                  Enter your password to disable two-factor authentication.
+                </Typography>
+                <TextField
+                  label="Password"
+                  type="password"
+                  value={tfaDisablePassword}
+                  onChange={(e) => setTfaDisablePassword(e.target.value)}
+                  size="small"
+                />
+                <Stack direction="row" spacing={1}>
+                  <Button
+                    variant="contained"
+                    color="error"
+                    size="small"
+                    onClick={disableTfa}
+                    disabled={tfaLoading || !tfaDisablePassword}
+                  >
+                    {tfaLoading ? <CircularProgress size={18} sx={{ color: 'white' }} /> : 'Confirm Disable'}
+                  </Button>
+                  <Button size="small" onClick={() => { setTfaShowDisable(false); setTfaDisablePassword(''); }}>
+                    Cancel
+                  </Button>
+                </Stack>
+              </Stack>
+            )}
+          </Stack>
+        )}
+      </Box>
 
     </Box>
   );

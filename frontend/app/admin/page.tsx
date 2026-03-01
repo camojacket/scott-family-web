@@ -38,6 +38,7 @@ import {
 } from '@mui/material';
 import { apiFetch } from '../lib/api';
 import AdminInquiriesTab from './AdminInquiriesTab';
+import AdminNotificationsTab from './AdminNotificationsTab';
 
 type PendingSignup = {
   id: number;
@@ -531,6 +532,7 @@ export default function AdminPage() {
         <Tab label="Profile modifications" />
         <Tab label="People requests" />
         <Tab label="Inquiries" />
+        <Tab label="Notifications" />
       </Tabs>
 
       {/* ---------- PENDING SIGNUPS ---------- */}
@@ -980,6 +982,15 @@ export default function AdminPage() {
           <Typography variant="h6" sx={{ fontWeight: 700, color: 'var(--color-primary-700)' }}>Inquiries</Typography>
           <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mb: 2 }}>View and respond to contact form messages</Typography>
           <AdminInquiriesTab />
+        </Box>
+      )}
+
+      {/* ---------- NOTIFICATIONS ---------- */}
+      {tab === 4 && (
+        <Box className="card" sx={{ p: { xs: 2, sm: 3 } }}>
+          <Typography variant="h6" sx={{ fontWeight: 700, color: 'var(--color-primary-700)' }}>Notifications</Typography>
+          <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mb: 2 }}>Send email &amp; SMS notifications to opted-in members</Typography>
+          <AdminNotificationsTab />
         </Box>
       )}
 

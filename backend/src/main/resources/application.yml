@@ -56,5 +56,13 @@ cdn:
   # - The CDN URL is constructed as {cdn.base-url}/{key}.
   # - For immutable static assets, prefer hashed filenames and immutable cache headers.
   # - For user images that change, write new files (new keys) rather than overwriting, then update DB to the new URL.
+twilio:
+  account-sid: ${TWILIO_ACCOUNT_SID:}
+  auth-token: ${TWILIO_AUTH_TOKEN:}
+  from-number: ${TWILIO_FROM_NUMBER:}
+
+notification:
+  prompt-cooldown-days: ${NOTIFICATION_PROMPT_COOLDOWN_DAYS:30}
+
 app-config:
-  base-url:
+  base-url: ${APP_BASE_URL:http://localhost:3000}

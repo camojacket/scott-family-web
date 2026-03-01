@@ -4,6 +4,7 @@ package com.scottfamily.scottfamily.controller;
 import com.scottfamily.scottfamily.dto.DTOs;
 import com.scottfamily.scottfamily.service.AuthService;
 import com.scottfamily.scottfamily.service.FamilyTreeService;
+import com.scottfamily.scottfamily.service.TwoFactorAuthService;
 import com.scottfamily.scottfamily.security.LoginRateLimiter;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
@@ -33,6 +34,7 @@ public class Controller {
 
     private final AuthService authService;
     private final FamilyTreeService familyTreeService;
+    private final TwoFactorAuthService twoFactorAuthService;
     private final DSLContext dsl;
     private final SecurityContextRepository securityContextRepository;
 
@@ -90,6 +92,32 @@ public class Controller {
         String role = profile.userRole(); // adapt to your accessor
         String springRole = role != null && role.startsWith("ROLE_") ? role : "ROLE_" + role;
 
+        // ── Two-Factor Authentication check ────────────────────────────
+        if (profile.id() != null && twoFactorAuthService.isEnabled(profile.id())) {
+            // Don't create full session yet — store pending 2FA in HTTP session
+            HttpSession session = request.getSession(true);
+            session.setAttribute("2FA_PENDING_USER_ID", profile.id());
+            session.setAttribute("2FA_PENDING_USERNAME", profile.username());
+            session.setAttribute("2FA_PENDING_ROLE", springRole);
+
+            // Clear any previous security context (credentials validated, but 2FA not yet)
+            SecurityContextHolder.clearContext();
+
+            // Send OTP code
+            try {
+                String maskedPhone = twoFactorAuthService.sendCode(profile.id());
+                return ResponseEntity.ok(Map.of(
+                        "twoFactorRequired", true,
+                        "maskedPhone", maskedPhone
+                ));
+            } catch (Exception e) {
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                        "error", "2FA_SEND_FAILED",
+                        "message", "Failed to send verification code. Please try again."
+                ));
+            }
+        }
+
         var auth = new UsernamePasswordAuthenticationToken(
                 profile.username(),
                 null,
@@ -114,6 +142,116 @@ public class Controller {
             return xff.split(",")[0].trim();
         }
         return request.getRemoteAddr();
+    }
+
+    /**
+     * Verify a 2FA code (OTP or backup code) to complete login.
+     */
+    @PostMapping("/auth/verify-2fa")
+    public ResponseEntity<?> verify2fa(@RequestBody Map<String, String> body,
+                                       HttpServletRequest request,
+                                       HttpServletResponse response) {
+        HttpSession session = request.getSession(false);
+        if (session == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                    "error", "NO_SESSION", "message", "No pending 2FA session. Please log in again."));
+        }
+
+        Long userId = (Long) session.getAttribute("2FA_PENDING_USER_ID");
+        String username = (String) session.getAttribute("2FA_PENDING_USERNAME");
+        String springRole = (String) session.getAttribute("2FA_PENDING_ROLE");
+
+        if (userId == null || username == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                    "error", "NO_2FA_PENDING", "message", "No pending 2FA verification. Please log in again."));
+        }
+
+        String code = body.get("code");
+        boolean useBackup = "true".equals(body.get("useBackupCode"));
+
+        if (code == null || code.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "MISSING_CODE", "message", "Verification code is required."));
+        }
+
+        try {
+            boolean verified;
+            if (useBackup) {
+                verified = twoFactorAuthService.verifyBackupCode(userId, code.trim());
+            } else {
+                verified = twoFactorAuthService.verifyCode(userId, code.trim());
+            }
+
+            if (!verified) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                        "error", "INVALID_CODE", "message", "Invalid verification code."));
+            }
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                    "error", "2FA_ERROR", "message", e.getMessage()));
+        }
+
+        // Load profile first — if this fails, don't commit auth
+        var profileOpt = authService.getProfileByUsername(username);
+        if (profileOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                    "error", "PROFILE_ERROR", "message", "Failed to load profile."));
+        }
+
+        // 2FA verified — clear pending state and create full session
+        session.removeAttribute("2FA_PENDING_USER_ID");
+        session.removeAttribute("2FA_PENDING_USERNAME");
+        session.removeAttribute("2FA_PENDING_ROLE");
+
+        var auth = new UsernamePasswordAuthenticationToken(
+                username, null,
+                List.of(new SimpleGrantedAuthority(springRole != null ? springRole : "ROLE_USER"))
+        );
+
+        SecurityContext context = SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(auth);
+        SecurityContextHolder.setContext(context);
+        securityContextRepository.saveContext(context, request, response);
+
+        // Rate limit success
+        LoginRateLimiter.recordSuccess(getClientIp(request));
+
+        return ResponseEntity.ok((Object) profileOpt.get());
+    }
+
+    /**
+     * Resend the 2FA OTP code.
+     */
+    @PostMapping("/auth/resend-2fa")
+    public ResponseEntity<?> resend2fa(HttpServletRequest request) {
+        HttpSession session = request.getSession(false);
+        if (session == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                    "error", "NO_SESSION", "message", "No pending 2FA session. Please log in again."));
+        }
+
+        Long userId = (Long) session.getAttribute("2FA_PENDING_USER_ID");
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                    "error", "NO_2FA_PENDING", "message", "No pending 2FA verification. Please log in again."));
+        }
+
+        // Enforce 60-second cooldown between resend requests
+        Long lastResend = (Long) session.getAttribute("2FA_LAST_RESEND_TIME");
+        if (lastResend != null && System.currentTimeMillis() - lastResend < 60_000) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(Map.of(
+                    "error", "RATE_LIMITED",
+                    "message", "Please wait 60 seconds before requesting another code."));
+        }
+        session.setAttribute("2FA_LAST_RESEND_TIME", System.currentTimeMillis());
+
+        try {
+            String maskedPhone = twoFactorAuthService.sendCode(userId);
+            return ResponseEntity.ok(Map.of("maskedPhone", maskedPhone, "sent", true));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                    "error", "2FA_SEND_FAILED", "message", "Failed to resend code. Please try again."));
+        }
     }
 
     @PostMapping("/auth/signup")

@@ -424,3 +424,43 @@ export interface ObituaryDto {
   createdAt: string;
   updatedAt: string;
 }
+
+// ─── Notification Preferences ───────────────────────────────
+export interface NotificationPrefsDto {
+  emailOptIn: boolean;
+  smsOptIn: boolean;
+  phoneNumber: string | null;
+}
+
+export interface UpdateNotificationPrefsRequest {
+  emailOptIn?: boolean;
+  smsOptIn?: boolean;
+  phoneNumber?: string;
+}
+
+export interface SendNotificationRequest {
+  subject: string;
+  body: string;
+  sendEmail: boolean;
+  sendSms: boolean;
+}
+
+export interface SendNotificationResponse {
+  emailsSent: number;
+  smsSent: number;
+  message: string;
+}
+
+export interface NotificationLogEntry {
+  id: number;
+  subject: string;
+  body: string;
+  channel: 'EMAIL' | 'SMS';
+  recipientCount: number;
+  sentAt: string;
+}
+
+export interface SubscriberCounts {
+  email: number;
+  sms: number;
+}

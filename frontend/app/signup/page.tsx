@@ -52,6 +52,7 @@ export default function SignupPage() {
     suffix: '',
     dateOfBirth: '',
     bio: '',
+    phoneNumber: '',
     profileFile: undefined as File | undefined,
     bannerFile: undefined as File | undefined,
   });
@@ -229,6 +230,16 @@ export default function SignupPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setMsg(null);
+
+    // Validate phone number format if provided (must be E.164 after stripping formatting)
+    if (form.phoneNumber) {
+      const normalized = form.phoneNumber.replace(/[\s\-().]/g, '');
+      if (!/^\+[1-9]\d{7,14}$/.test(normalized)) {
+        setMsg({ type: 'error', text: 'Phone number must be in international format, e.g. +15551234567' });
+        return;
+      }
+    }
+
     setLoading(true);
     try {
       let profilePictureUrl: string | undefined;
@@ -254,6 +265,7 @@ export default function SignupPage() {
         suffix: form.suffix || undefined,
         dateOfBirth: form.dateOfBirth || undefined,
         bio: form.bio,
+        phoneNumber: form.phoneNumber || undefined,
         profilePictureUrl,
         bannerImageUrl,
       };
@@ -548,6 +560,10 @@ export default function SignupPage() {
             <TextField name="username" label="Username" required value={form.username} onChange={onChange} fullWidth />
             <TextField name="email" label="Email" type="email" required value={form.email} onChange={onChange} fullWidth />
             <TextField name="password" label="Password" type="password" required value={form.password} onChange={onChange} fullWidth />
+            <TextField name="phoneNumber" label="Phone number (optional)" type="tel" value={form.phoneNumber} onChange={onChange} fullWidth
+              placeholder="+1 (555) 123-4567"
+              helperText="For SMS notifications — you can add or change this later"
+            />
             <TextField name="bio" label="Bio (optional)" multiline minRows={3} value={form.bio} onChange={onChange} fullWidth />
 
             <Divider><Chip label="Family Links" size="small" sx={{ fontSize: '0.75rem' }} /></Divider>
