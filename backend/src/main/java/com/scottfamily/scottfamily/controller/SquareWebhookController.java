@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.scottfamily.scottfamily.service.DonationService;
 import com.scottfamily.scottfamily.service.DuesService;
 import com.scottfamily.scottfamily.service.OrderService;
 import com.scottfamily.scottfamily.service.OrderService.*;
@@ -57,10 +58,12 @@ public class SquareWebhookController {
 
     private final DuesService duesService;
     private final OrderService orderService;
+    private final DonationService donationService;
 
-    public SquareWebhookController(DuesService duesService, OrderService orderService) {
+    public SquareWebhookController(DuesService duesService, OrderService orderService, DonationService donationService) {
         this.duesService = duesService;
         this.orderService = orderService;
+        this.donationService = donationService;
     }
 
     /**
@@ -214,6 +217,10 @@ public class SquareWebhookController {
                 // updateStatus handles PENDING → CANCELLED correctly (no stock to restore)
                 orderService.updateStatus(orderId, "CANCELLED");
                 log.info("Square webhook: cancelled order {} due to payment failure", orderId);
+            } else if (referenceId.startsWith("donation:")) {
+                Long donationId = Long.parseLong(referenceId.substring(9));
+                donationService.markFailed(donationId);
+                log.info("Square webhook: marked donation {} as FAILED", donationId);
             } else {
                 log.warn("Square webhook: unknown reference_id format: {}", referenceId);
             }
@@ -296,6 +303,24 @@ public class SquareWebhookController {
                 }
                 duesService.markCompleted(userId, year, paymentId, receiptUrl);
                 log.info("Square webhook: reconciled dues for user {} year {}", userId, year);
+
+            } else if (referenceId.startsWith("donation:")) {
+                Long donationId = Long.parseLong(referenceId.substring(9));
+                var donation = donationService.getById(donationId);
+                if (donation == null) {
+                    log.warn("Square webhook: donation {} not found for payment {}", donationId, paymentId);
+                    return;
+                }
+                if ("COMPLETED".equals(donation.status())) {
+                    log.info("Square webhook: donation {} already COMPLETED, skipping (duplicate webhook)", donationId);
+                    return;
+                }
+                if (!"PENDING".equals(donation.status()) && !"FAILED".equals(donation.status())) {
+                    log.warn("Square webhook: donation {} is {} — cannot reconcile", donationId, donation.status());
+                    return;
+                }
+                donationService.confirmDonation(donationId, paymentId, receiptUrl);
+                log.info("Square webhook: reconciled donation {} as COMPLETED", donationId);
 
             } else {
                 log.warn("Square webhook: unknown reference_id format: {}", referenceId);

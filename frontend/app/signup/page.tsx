@@ -698,6 +698,12 @@ export default function SignupPage() {
               Already have an account?{' '}
               <a href="/login" style={{ color: 'var(--color-primary-500)', fontWeight: 600 }}>Login</a>
             </Typography>
+
+            <Typography variant="body2" sx={{ textAlign: 'center', color: 'var(--text-secondary)' }}>
+              Want to support the reunion?{' '}
+              <a href="/donate" style={{ color: 'var(--color-primary-500)', fontWeight: 600 }}>Make a donation</a>
+              {' '}&mdash; no account needed
+            </Typography>
           </Stack>
         </form>
       </Box>

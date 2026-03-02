@@ -12,7 +12,12 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.Period;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import static com.yourproject.generated.scott_family_web.Tables.USERS;
@@ -137,12 +142,12 @@ public class DuesService {
 
     /** Admin: list all payment records for a given year. */
     public List<DuesPaymentDto> listByYear(int year) {
-        return dsl.select()
+        var records = dsl.select()
                 .from(DUES)
                 .where(REUNION_YEAR.eq(year))
                 .orderBy(CREATED_AT.desc())
-                .fetch()
-                .map(this::mapRecord);
+                .fetch();
+        return mapRecords(records);
     }
 
     /** Admin: get paid/unpaid status for ALL users for a given year, plus guest/person payments. */
@@ -205,6 +210,18 @@ public class DuesService {
                 .filter(id -> id != null)
                 .collect(java.util.stream.Collectors.toSet());
 
+        // Batch-resolve person names and paid-by display names
+        Set<Long> guestPersonIds = new HashSet<>();
+        Set<Long> guestPaidByIds = new HashSet<>();
+        for (var r : guestRows) {
+            Long personId = r.get(PERSON_ID_F);
+            Long paidBy = r.get(PAID_BY);
+            if (personId != null) guestPersonIds.add(personId);
+            if (paidBy != null) guestPaidByIds.add(paidBy);
+        }
+        Map<Long, String> personNameMap = batchResolvePersonNames(guestPersonIds);
+        Map<Long, String> paidByNameMap = userHelper.batchResolveDisplayNames(guestPaidByIds);
+
         for (var r : guestRows) {
             Long uid = r.get(USER_ID);
             // Skip if this is a self-payment for a user we already listed
@@ -216,13 +233,13 @@ public class DuesService {
             if (guestName != null) {
                 displayName = guestName;
             } else if (personId != null) {
-                displayName = resolvePersonName(personId);
+                displayName = personNameMap.getOrDefault(personId, "Unknown");
             } else {
                 displayName = "Unknown";
             }
 
             String paidByName = r.get(PAID_BY) != null
-                    ? userHelper.resolveDisplayName(r.get(PAID_BY))
+                    ? paidByNameMap.getOrDefault(r.get(PAID_BY), "Unknown")
                     : null;
 
             result.add(new DuesStatusDto(
@@ -272,7 +289,7 @@ public class DuesService {
         }
 
         // Guest payments (guest_name set, no person_id) — include all statuses for visibility
-        List<DuesPaymentDto> guestPayments = dsl.select()
+        var guestRecords = dsl.select()
                 .from(DUES)
                 .where(PAID_BY.eq(userId)
                         .and(REUNION_YEAR.eq(year))
@@ -280,11 +297,10 @@ public class DuesService {
                         .and(PERSON_ID_F.isNull())
                         .and(DSL.or(USER_ID.isNull(), USER_ID.eq(userId))))
                 .orderBy(CREATED_AT.desc())
-                .fetch()
-                .map(this::mapRecord);
+                .fetch();
 
         // On-behalf payments for people with profiles or other users — all statuses
-        List<DuesPaymentDto> onBehalfPayments = dsl.select()
+        var onBehalfRecords = dsl.select()
                 .from(DUES)
                 .where(PAID_BY.eq(userId)
                         .and(REUNION_YEAR.eq(year))
@@ -293,8 +309,26 @@ public class DuesService {
                                 USER_ID.isNotNull().and(USER_ID.ne(userId))
                         )))
                 .orderBy(CREATED_AT.desc())
-                .fetch()
-                .map(this::mapRecord);
+                .fetch();
+
+        // Batch-resolve names for both sets together
+        Set<Long> allPersonIds = new HashSet<>();
+        Set<Long> allUserIds = new HashSet<>();
+        for (var r : guestRecords) {
+            if (r.get(PERSON_ID_F) != null) allPersonIds.add(r.get(PERSON_ID_F));
+            if (r.get(USER_ID) != null) allUserIds.add(r.get(USER_ID));
+            if (r.get(PAID_BY) != null) allUserIds.add(r.get(PAID_BY));
+        }
+        for (var r : onBehalfRecords) {
+            if (r.get(PERSON_ID_F) != null) allPersonIds.add(r.get(PERSON_ID_F));
+            if (r.get(USER_ID) != null) allUserIds.add(r.get(USER_ID));
+            if (r.get(PAID_BY) != null) allUserIds.add(r.get(PAID_BY));
+        }
+        Map<Long, String> personNames = batchResolvePersonNames(allPersonIds);
+        Map<Long, String> userNames = userHelper.batchResolveDisplayNames(allUserIds);
+
+        List<DuesPaymentDto> guestPayments = guestRecords.map(r -> mapRecord(r, personNames, userNames));
+        List<DuesPaymentDto> onBehalfPayments = onBehalfRecords.map(r -> mapRecord(r, personNames, userNames));
 
         // Person IDs that already have COMPLETED or PENDING dues (for autocomplete exclusion)
         List<Long> paidPersonIds = dsl.select(PERSON_ID_F)
@@ -583,9 +617,16 @@ public class DuesService {
             }
         }
 
-        List<DuesPaymentDto> payments = paymentIds.stream()
-                .map(this::getById)
-                .toList();
+        List<DuesPaymentDto> payments;
+        if (paymentIds.isEmpty()) {
+            payments = List.of();
+        } else {
+            var records = dsl.select().from(DUES)
+                    .where(ID.in(paymentIds))
+                    .orderBy(CREATED_AT.asc())
+                    .fetch();
+            payments = mapRecords(records);
+        }
 
         int totalCents = payments.stream().mapToInt(DuesPaymentDto::amountCents).sum();
         return new DuesBatchDto(batchId, totalCents, payments.size(), payments);
@@ -610,11 +651,11 @@ public class DuesService {
                 .where(BATCH_ID_F.eq(batchId).and(STATUS.in("PENDING", "FAILED")))
                 .execute();
 
-        var all = dsl.select().from(DUES)
+        var allRecords = dsl.select().from(DUES)
                 .where(BATCH_ID_F.eq(batchId))
                 .orderBy(CREATED_AT.asc())
-                .fetch()
-                .map(this::mapRecord);
+                .fetch();
+        var all = mapRecords(allRecords);
 
         if (affected == 0) {
             if (!all.isEmpty() && all.stream().allMatch(p -> "COMPLETED".equals(p.status()))) {
@@ -772,6 +813,24 @@ public class DuesService {
         return "Unknown";
     }
 
+    /** Batch-resolve person names in a single query. */
+    private Map<Long, String> batchResolvePersonNames(Collection<Long> personIds) {
+        if (personIds == null || personIds.isEmpty()) return Map.of();
+        Map<Long, String> result = new HashMap<>();
+        dsl.select(PEOPLE.ID, PEOPLE.FIRST_NAME, PEOPLE.LAST_NAME)
+                .from(PEOPLE)
+                .where(PEOPLE.ID.in(personIds))
+                .forEach(rec -> {
+                    String first = rec.get(PEOPLE.FIRST_NAME);
+                    String last = rec.get(PEOPLE.LAST_NAME);
+                    String name = first != null
+                            ? (first + " " + (last != null ? last : "")).trim()
+                            : "Unknown";
+                    result.put(rec.get(PEOPLE.ID), name);
+                });
+        return result;
+    }
+
     /**
      * Resolve the dues amount for a user by looking up their DOB from the people table.
      * Falls back to DUES_AMOUNT_CENTS if no DOB or no matching tier.
@@ -809,6 +868,80 @@ public class DuesService {
         return pricingService.resolveAmount(guestAge, year);
     }
 
+    /**
+     * Build pre-fetched name maps for a list of records (2 queries total).
+     * Returns [personNameMap, userDisplayNameMap].
+     */
+    @SuppressWarnings("unchecked")
+    private Map<Long, String>[] buildNameMaps(List<? extends Record> records) {
+        Set<Long> personIds = new HashSet<>();
+        Set<Long> userIds = new HashSet<>();
+        for (var rec : records) {
+            Long personId = rec.get(PERSON_ID_F);
+            Long uid = rec.get(USER_ID);
+            Long paidBy = rec.get(PAID_BY);
+            if (personId != null) personIds.add(personId);
+            if (uid != null) userIds.add(uid);
+            if (paidBy != null) userIds.add(paidBy);
+        }
+        return new Map[] {
+                batchResolvePersonNames(personIds),
+                userHelper.batchResolveDisplayNames(userIds)
+        };
+    }
+
+    /** Batch-map a list of records with only 2 look-up queries instead of 2×N. */
+    private List<DuesPaymentDto> mapRecords(List<? extends Record> records) {
+        if (records.isEmpty()) return List.of();
+        var maps = buildNameMaps(records);
+        return records.stream()
+                .map(r -> mapRecord(r, maps[0], maps[1]))
+                .toList();
+    }
+
+    /** Map a single record using pre-fetched name maps (zero extra queries). */
+    private DuesPaymentDto mapRecord(Record rec, Map<Long, String> personNames, Map<Long, String> userNames) {
+        Long uid = rec.get(USER_ID);
+        Long personId = rec.get(PERSON_ID_F);
+        Long paidBy = rec.get(PAID_BY);
+        String guestName = rec.get(GUEST_NAME_F);
+        Integer guestAge = rec.get(GUEST_AGE_F);
+
+        String displayName;
+        if (guestName != null) {
+            displayName = guestName;
+        } else if (personId != null) {
+            displayName = personNames.getOrDefault(personId, "Unknown");
+        } else if (uid != null) {
+            displayName = userNames.getOrDefault(uid, "Unknown");
+        } else {
+            displayName = "Unknown";
+        }
+
+        String paidByName = paidBy != null ? userNames.getOrDefault(paidBy, "Unknown") : null;
+
+        return new DuesPaymentDto(
+                rec.get(ID),
+                uid,
+                personId,
+                paidBy,
+                displayName,
+                paidByName,
+                guestName,
+                guestAge,
+                rec.get(REUNION_YEAR),
+                rec.get(AMOUNT_CENTS) != null ? rec.get(AMOUNT_CENTS) : 0,
+                rec.get(STATUS),
+                rec.get(SQ_PAYMENT_ID),
+                rec.get(SQ_RECEIPT_URL),
+                rec.get(BATCH_ID_F),
+                rec.get(NOTES),
+                rec.get(PAID_AT) != null ? rec.get(PAID_AT).toString() : null,
+                rec.get(CREATED_AT) != null ? rec.get(CREATED_AT).toString() : null
+        );
+    }
+
+    /** Single-record mapping (used for getById/getByUserAndYear where N=1). */
     private DuesPaymentDto mapRecord(Record rec) {
         Long uid = rec.get(USER_ID);
         Long personId = rec.get(PERSON_ID_F);

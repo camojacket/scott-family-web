@@ -14,6 +14,7 @@ import java.util.stream.Collectors;
 
 import org.jooq.DSLContext;
 import org.jooq.Record;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import lombok.RequiredArgsConstructor;
 import com.scottfamily.scottfamily.dto.DTOs;
@@ -35,6 +36,12 @@ public class FamilyTreeService {
     private static final org.jooq.Field<String> P_MIDDLE_NAME =
             org.jooq.impl.DSL.field(org.jooq.impl.DSL.name("middle_name"), String.class);
 
+    /**
+     * Build the full family tree DTO. Cached for 5 minutes (see CacheConfig).
+     * The tree is rebuilt from scratch on cache miss — 5+ queries loading all people,
+     * relationships, and spouses into memory.
+     */
+    @Cacheable("familyTree")
     public DTOs.FamilyNodeDto buildTree() {
         // 1) Pending person IDs (APPROVED_AT is null)
         Set<Long> pendingPersonIds = new HashSet<>(

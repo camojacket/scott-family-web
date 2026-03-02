@@ -13,10 +13,14 @@ import org.jooq.impl.DSL;
 import org.jooq.impl.SQLDataType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -48,6 +52,7 @@ public class OrphanBlobCleanupJob {
     private final CdnProperties cdnProps;
     private final SiteSettingsService settingsService;
     private final ObjectMapper objectMapper;
+    private final Executor asyncExecutor;
 
     // ── DB tables & fields ──────────────────────────────────────────────────
 
@@ -72,12 +77,14 @@ public class OrphanBlobCleanupJob {
                                 DSLContext dsl,
                                 CdnProperties cdnProps,
                                 SiteSettingsService settingsService,
-                                ObjectMapper objectMapper) {
+                                ObjectMapper objectMapper,
+                                @Qualifier("asyncExecutor") Executor asyncExecutor) {
         this.container = container;
         this.dsl = dsl;
         this.cdnProps = cdnProps;
         this.settingsService = settingsService;
         this.objectMapper = objectMapper;
+        this.asyncExecutor = asyncExecutor;
     }
 
     @Scheduled(cron = "0 0 4 * * *") // 4:00 AM daily
@@ -86,10 +93,11 @@ public class OrphanBlobCleanupJob {
             Set<String> referencedKeys = collectAllReferencedBlobKeys();
             log.info("OrphanBlobCleanupJob: {} blob keys referenced in DB", referencedKeys.size());
 
-            int deleted = 0;
+            AtomicInteger deleted = new AtomicInteger();
             int scanned = 0;
 
             java.time.OffsetDateTime cutoff = java.time.OffsetDateTime.now().minusHours(24);
+            List<CompletableFuture<Void>> deleteFutures = new ArrayList<>();
 
             for (BlobItem blob : container.listBlobs()) {
                 scanned++;
@@ -105,16 +113,21 @@ public class OrphanBlobCleanupJob {
                     continue;
                 }
 
-                // Delete orphan
-                try {
-                    container.getBlobClient(blobName).deleteIfExists();
-                    deleted++;
-                } catch (Exception e) {
-                    log.warn("OrphanBlobCleanupJob: failed to delete orphan blob {}: {}", blobName, e.getMessage());
-                }
+                // Delete orphan in parallel
+                deleteFutures.add(CompletableFuture.runAsync(() -> {
+                    try {
+                        container.getBlobClient(blobName).deleteIfExists();
+                        deleted.incrementAndGet();
+                    } catch (Exception e) {
+                        log.warn("OrphanBlobCleanupJob: failed to delete orphan blob {}: {}", blobName, e.getMessage());
+                    }
+                }, asyncExecutor));
             }
 
-            log.info("OrphanBlobCleanupJob: scanned {} blobs, deleted {} orphans", scanned, deleted);
+            // Wait for all deletes to finish
+            CompletableFuture.allOf(deleteFutures.toArray(CompletableFuture[]::new)).join();
+
+            log.info("OrphanBlobCleanupJob: scanned {} blobs, deleted {} orphans", scanned, deleted.get());
         } catch (Exception e) {
             log.error("OrphanBlobCleanupJob: error during cleanup", e);
         }

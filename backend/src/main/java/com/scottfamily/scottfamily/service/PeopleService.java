@@ -270,8 +270,15 @@ public class PeopleService {
                         r.get(DSL.field(DSL.name("RELATION"), String.class))));
 
         List<DTOs.PersonRelDto> siblings = new ArrayList<>();
+        // Batch-fetch display names for all siblings in one query
+        Map<Long, String> siblingNames = batchResolveNames(siblingRelMap.keySet());
         for (var entry : siblingRelMap.entrySet()) {
-            siblings.add(relDto(entry.getKey(), entry.getValue() != null ? entry.getValue() : "SIBLING"));
+            String name = siblingNames.getOrDefault(entry.getKey(), "#" + entry.getKey());
+            siblings.add(DTOs.PersonRelDto.builder()
+                    .personId(entry.getKey())
+                    .displayName(name)
+                    .relation(entry.getValue() != null ? entry.getValue() : "SIBLING")
+                    .build());
         }
 
         // Spouses from PERSON_SPOUSE table
@@ -619,6 +626,25 @@ public class PeopleService {
                 .displayName(name)
                 .relation(relation)
                 .build();
+    }
+
+    /**
+     * Batch-fetch display names for multiple person IDs in a single query.
+     * Returns a map of personId → display name. Missing IDs get "#<id>" placeholder.
+     */
+    private Map<Long, String> batchResolveNames(Collection<Long> personIds) {
+        if (personIds == null || personIds.isEmpty()) return Map.of();
+        Map<Long, String> names = new HashMap<>();
+        dsl.select(PEOPLE.ID, P_PREFIX, PEOPLE.FIRST_NAME, P_MIDDLE_NAME,
+                        PEOPLE.LAST_NAME, P_SUFFIX, PEOPLE.DATE_OF_BIRTH, DATE_OF_DEATH)
+                .from(PEOPLE)
+                .where(PEOPLE.ID.in(personIds))
+                .fetch()
+                .forEach(r -> names.put(r.get(PEOPLE.ID),
+                        fullDisplayName(r.get(P_PREFIX), r.get(PEOPLE.FIRST_NAME), r.get(P_MIDDLE_NAME),
+                                r.get(PEOPLE.LAST_NAME), r.get(P_SUFFIX),
+                                r.get(PEOPLE.DATE_OF_BIRTH), r.get(DATE_OF_DEATH))));
+        return names;
     }
 
     /** Upsert a row in PERSON_PARENT (childId → parentId with given relation). */

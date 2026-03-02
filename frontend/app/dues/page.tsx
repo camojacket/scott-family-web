@@ -32,11 +32,14 @@ import SaveIcon from '@mui/icons-material/Save';
 import SettingsIcon from '@mui/icons-material/Settings';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import VolunteerActivismIcon from '@mui/icons-material/VolunteerActivism';
+import Tab from '@mui/material/Tab';
+import Tabs from '@mui/material/Tabs';
 import { apiFetch } from '../lib/api';
 import { useAuth } from '../lib/useAuth';
 import { useFamilyName } from '../lib/FamilyNameContext';
 import PersonAutocomplete from '../components/PersonAutocomplete';
-import type { DuesPageDto, DuesBatchDto, DuePeriodResponse, DuePeriodDto, PricingTierDto } from '../lib/types';
+import type { DuesPageDto, DuesBatchDto, DuePeriodResponse, DuePeriodDto, PricingTierDto, DonationDto } from '../lib/types';
 
 /** Fallback amount in cents — used only when the server/tiers haven't loaded yet. */
 const FALLBACK_AMOUNT_CENTS = 2500;
@@ -84,6 +87,23 @@ export default function DuesPage() {
   // ── Pricing tiers ──
   const [pricingTiers, setPricingTiers] = useState<PricingTierDto[]>([]);
   const [pricingScheduleOpen, setPricingScheduleOpen] = useState(false);
+
+  // ── Tabs ──
+  const [activeTab, setActiveTab] = useState(0);
+
+  // ── Donate tab state ──
+  const PRESET_AMOUNTS = [2500, 5000, 10000, 25000]; // $25, $50, $100, $250
+  const [donateAmountCents, setDonateAmountCents] = useState<number | null>(null);
+  const [donateCustomAmount, setDonateCustomAmount] = useState('');
+  const [donateNote, setDonateNote] = useState('');
+  const [donating, setDonating] = useState(false);
+  const [verifyingDonation, setVerifyingDonation] = useState(false);
+  const [confirmedDonation, setConfirmedDonation] = useState<DonationDto | null>(null);
+  const [myDonations, setMyDonations] = useState<DonationDto[]>([]);
+  const donationPollingRef = useRef(false);
+
+  const effectiveDonateAmountCents = donateAmountCents ?? (donateCustomAmount ? Math.round(parseFloat(donateCustomAmount) * 100) : 0);
+  const isDonateAmountValid = effectiveDonateAmountCents >= 100 && effectiveDonateAmountCents <= 1_000_000;
 
   // The amount for the logged-in user (server resolves by that user's DOB)
   const selfAmountCents = pageData?.duesAmountCents ?? FALLBACK_AMOUNT_CENTS;
@@ -240,6 +260,101 @@ export default function DuesPage() {
     return () => { pollingRef.current = false; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ── Handle return from Square donation checkout ──
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('tab') === 'donate' && params.get('status') === 'paid' && params.get('donationId')) {
+      const donationId = params.get('donationId');
+      window.history.replaceState({}, '', '/dues');
+      setActiveTab(1); // switch to Donate tab
+      setVerifyingDonation(true);
+      donationPollingRef.current = true;
+
+      const poll = async () => {
+        const maxAttempts = 15;
+        for (let i = 0; i < maxAttempts && donationPollingRef.current; i++) {
+          await new Promise(r => setTimeout(r, 2000));
+          try {
+            const donation = await apiFetch<DonationDto>(`/api/donations/${donationId}`);
+            if (donation.status === 'COMPLETED') {
+              setConfirmedDonation(donation);
+              setVerifyingDonation(false);
+              donationPollingRef.current = false;
+              loadMyDonations();
+              return;
+            }
+          } catch { /* continue polling */ }
+        }
+        setVerifyingDonation(false);
+        donationPollingRef.current = false;
+        setSnack({
+          msg: 'Your donation is being processed. You should receive a receipt from Square shortly.',
+          severity: 'info',
+        });
+      };
+      poll();
+    }
+    return () => { donationPollingRef.current = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Load user's donation history ──
+  const loadMyDonations = useCallback(async () => {
+    try {
+      const donations = await apiFetch<DonationDto[]>('/api/donations/mine');
+      setMyDonations(donations);
+    } catch { /* not critical */ }
+  }, []);
+
+  useEffect(() => { loadMyDonations(); }, [loadMyDonations]);
+
+  // ── Authenticated donation checkout ──
+  const handleDonateCheckout = async () => {
+    if (!isDonateAmountValid) {
+      setSnack({ msg: 'Please enter an amount between $1.00 and $10,000.00', severity: 'error' });
+      return;
+    }
+    setDonating(true);
+    try {
+      // Step 1: Create PENDING donation (authenticated)
+      const donation = await apiFetch<DonationDto>('/api/donations', {
+        method: 'POST',
+        body: {
+          amountCents: effectiveDonateAmountCents,
+          note: donateNote.trim() || null,
+        },
+      });
+
+      // Step 2: Create Square checkout link
+      const res = await fetch('/api/square/donation-checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          donationId: donation.id,
+          amountCents: donation.amountCents,
+          note: donateNote.trim() || null,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: 'Checkout failed' }));
+        throw new Error(data.error || 'Failed to create checkout');
+      }
+
+      const { checkoutUrl } = await res.json();
+      if (!checkoutUrl) throw new Error('No checkout URL returned');
+
+      // Step 3: Redirect to Square
+      window.location.href = checkoutUrl;
+      return;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Donation failed';
+      setSnack({ msg: message, severity: 'error' });
+    } finally {
+      setDonating(false);
+    }
+  };
 
   const addGuest = () => {
     const trimmedName = guestName.trim();
@@ -506,7 +621,27 @@ export default function DuesPage() {
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
           <CircularProgress />
         </Box>
-      ) : verifying ? (
+      ) : (
+        <>
+          {/* ── Tabs: Dues / Donate ── */}
+          <Tabs
+            value={activeTab}
+            onChange={(_, v) => setActiveTab(v)}
+            centered
+            sx={{
+              mb: 3,
+              '& .MuiTab-root': { fontWeight: 700, fontSize: '1rem', textTransform: 'none' },
+              '& .Mui-selected': { color: 'var(--color-primary-600)' },
+              '& .MuiTabs-indicator': { backgroundColor: 'var(--color-primary-500)' },
+            }}
+          >
+            <Tab icon={<PaymentIcon />} iconPosition="start" label="Dues" />
+            <Tab icon={<VolunteerActivismIcon />} iconPosition="start" label="Donate" />
+          </Tabs>
+
+          {activeTab === 0 && (
+            <>
+              {verifying ? (
         <Box sx={{ textAlign: 'center', py: 8 }}>
           <CircularProgress size={48} sx={{ mb: 2 }} />
           <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
@@ -969,6 +1104,237 @@ export default function DuesPage() {
             </Alert>
           </Box>
         </Stack>
+      )}
+            </>
+          )}
+
+          {/* ══════════════════════════════════════════════
+              Donate Tab
+             ══════════════════════════════════════════════ */}
+          {activeTab === 1 && (
+            <>
+              {verifyingDonation ? (
+                <Box sx={{ textAlign: 'center', py: 8 }}>
+                  <CircularProgress size={48} sx={{ mb: 2 }} />
+                  <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
+                    Confirming your donation&hellip;
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>
+                    Please wait while we verify your payment with Square.
+                  </Typography>
+                </Box>
+              ) : confirmedDonation ? (
+                <Box className="card" sx={{ p: { xs: 3, sm: 4 }, textAlign: 'center' }}>
+                  <CheckCircleIcon sx={{ fontSize: 48, color: '#2e7d32', mb: 1 }} />
+                  <Typography variant="h6" sx={{ fontWeight: 700, color: '#2e7d32', mb: 2 }}>
+                    Thank You for Your Donation!
+                  </Typography>
+                  <Stack spacing={1} sx={{ textAlign: 'left', maxWidth: 340, mx: 'auto', mb: 2 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>Amount</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        {formatCents(confirmedDonation.amountCents)}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>Status</Typography>
+                      <Chip label="Completed" size="small" color="success" variant="outlined" />
+                    </Box>
+                    {confirmedDonation.note && (
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>Note</Typography>
+                        <Typography variant="body2">{confirmedDonation.note}</Typography>
+                      </Box>
+                    )}
+                    {confirmedDonation.squareReceiptUrl && (
+                      <Button
+                        startIcon={<ReceiptIcon />}
+                        href={confirmedDonation.squareReceiptUrl}
+                        target="_blank"
+                        size="small"
+                        sx={{ mt: 1 }}
+                      >
+                        View Receipt
+                      </Button>
+                    )}
+                  </Stack>
+                  <Button
+                    variant="outlined"
+                    onClick={() => {
+                      setConfirmedDonation(null);
+                      setDonateAmountCents(null);
+                      setDonateCustomAmount('');
+                      setDonateNote('');
+                    }}
+                    sx={{ borderColor: 'var(--color-primary-300)', color: 'var(--color-primary-600)' }}
+                  >
+                    Make Another Donation
+                  </Button>
+                </Box>
+              ) : (
+                <Stack spacing={3}>
+                  {/* Donation form */}
+                  <Box className="card" sx={{ p: { xs: 3, sm: 4 } }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                      <VolunteerActivismIcon sx={{ color: 'var(--color-primary-400)' }} />
+                      <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                        Make a Donation
+                      </Typography>
+                    </Box>
+                    <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mb: 3 }}>
+                      Support the {full} family beyond reunion dues. Donations are separate from your annual dues.
+                    </Typography>
+
+                    {/* Amount presets */}
+                    <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1.5 }}>
+                      Select Amount
+                    </Typography>
+                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2 }}>
+                      {PRESET_AMOUNTS.map((cents) => (
+                        <Button
+                          key={cents}
+                          variant={donateAmountCents === cents ? 'contained' : 'outlined'}
+                          onClick={() => { setDonateAmountCents(cents); setDonateCustomAmount(''); }}
+                          sx={{
+                            minWidth: 80,
+                            ...(donateAmountCents === cents
+                              ? { bgcolor: 'var(--color-primary-500)', '&:hover': { bgcolor: 'var(--color-primary-600)' } }
+                              : { borderColor: 'var(--color-primary-300)', color: 'var(--color-primary-600)' }),
+                          }}
+                        >
+                          {formatCents(cents)}
+                        </Button>
+                      ))}
+                    </Box>
+
+                    <TextField
+                      label="Custom Amount"
+                      type="number"
+                      value={donateCustomAmount}
+                      onChange={(e) => { setDonateCustomAmount(e.target.value); setDonateAmountCents(null); }}
+                      fullWidth
+                      size="small"
+                      sx={{ mb: 2 }}
+                      slotProps={{
+                        htmlInput: { min: 1, max: 10000, step: 0.01 },
+                        input: {
+                          startAdornment: (
+                            <Typography sx={{ mr: 0.5, color: 'var(--text-secondary)' }}>$</Typography>
+                          ),
+                        },
+                      }}
+                      helperText="Minimum $1.00"
+                    />
+
+                    <TextField
+                      label="Dedication or Note (optional)"
+                      value={donateNote}
+                      onChange={(e) => setDonateNote(e.target.value)}
+                      fullWidth
+                      multiline
+                      rows={2}
+                      placeholder="In memory of…, For the youth fund, etc."
+                      slotProps={{ htmlInput: { maxLength: 200 } }}
+                      sx={{ mb: 2 }}
+                    />
+
+                    {/* Amount summary */}
+                    {isDonateAmountValid && (
+                      <Box
+                        sx={{
+                          bgcolor: 'var(--color-primary-50)',
+                          border: '1px solid var(--color-primary-200)',
+                          borderRadius: 'var(--radius-md)',
+                          p: 2,
+                          textAlign: 'center',
+                          mb: 2,
+                        }}
+                      >
+                        <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>
+                          Donation Amount
+                        </Typography>
+                        <Typography variant="h4" sx={{ fontWeight: 800, color: 'var(--color-primary-600)' }}>
+                          {formatCents(effectiveDonateAmountCents)}
+                        </Typography>
+                      </Box>
+                    )}
+
+                    <Button
+                      variant="contained"
+                      size="large"
+                      fullWidth
+                      onClick={handleDonateCheckout}
+                      disabled={donating || !isDonateAmountValid}
+                      startIcon={donating ? <CircularProgress size={18} sx={{ color: '#fff' }} /> : <VolunteerActivismIcon />}
+                      sx={{
+                        bgcolor: 'var(--color-primary-500)',
+                        '&:hover': { bgcolor: 'var(--color-primary-600)' },
+                        py: 1.5,
+                        fontSize: '1rem',
+                        fontWeight: 600,
+                      }}
+                    >
+                      {donating ? 'Redirecting to Square...' : `Donate ${isDonateAmountValid ? formatCents(effectiveDonateAmountCents) : ''}`}
+                    </Button>
+
+                    <Alert severity="info" sx={{ mt: 3, borderRadius: 'var(--radius-md)' }}>
+                      <Typography variant="body2">
+                        Payments are processed securely through Square&apos;s hosted checkout.
+                        Donations are separate from reunion dues.
+                      </Typography>
+                    </Alert>
+                  </Box>
+
+                  {/* Donation history */}
+                  {myDonations.length > 0 && (
+                    <Box className="card" sx={{ p: { xs: 3, sm: 4 } }}>
+                      <Typography variant="h6" sx={{ fontWeight: 700, mb: 2 }}>
+                        Your Donations
+                      </Typography>
+                      <Stack spacing={1}>
+                        {myDonations.map((d) => (
+                          <Box
+                            key={d.id}
+                            sx={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              py: 1,
+                              px: 2,
+                              borderRadius: 'var(--radius-sm)',
+                              bgcolor: 'var(--color-primary-50)',
+                            }}
+                          >
+                            <Box>
+                              <Typography sx={{ fontWeight: 600 }}>{formatCents(d.amountCents)}</Typography>
+                              <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>
+                                {d.note && `${d.note} • `}
+                                {d.paidAt ? new Date(d.paidAt).toLocaleDateString() : d.createdAt ? new Date(d.createdAt).toLocaleDateString() : ''}
+                              </Typography>
+                            </Box>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              {d.squareReceiptUrl && (
+                                <IconButton size="small" href={d.squareReceiptUrl} target="_blank">
+                                  <ReceiptIcon fontSize="small" />
+                                </IconButton>
+                              )}
+                              <Chip
+                                label={d.status === 'COMPLETED' ? 'Completed' : d.status === 'PENDING' ? 'Pending' : d.status === 'REFUNDED' ? 'Refunded' : 'Failed'}
+                                size="small"
+                                color={d.status === 'COMPLETED' ? 'success' : d.status === 'PENDING' ? 'warning' : d.status === 'REFUNDED' ? 'info' : 'error'}
+                                variant="outlined"
+                              />
+                            </Box>
+                          </Box>
+                        ))}
+                      </Stack>
+                    </Box>
+                  )}
+                </Stack>
+              )}
+            </>
+          )}
+        </>
       )}
 
       <Snackbar

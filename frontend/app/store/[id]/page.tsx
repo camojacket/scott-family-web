@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { cache } from 'react';
 import { notFound } from 'next/navigation';
 import { serverFetch } from '../../lib/serverFetch';
 import ProductDetailClient from './ProductDetailClient';
@@ -8,10 +9,14 @@ interface Props {
   params: Promise<{ id: string }>;
 }
 
+const getProduct = cache((id: string) =>
+  serverFetch<ProductDto>(`/api/store/products/${id}`)
+);
+
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
   try {
-    const product = await serverFetch<ProductDto>(`/api/store/products/${id}`);
+    const product = await getProduct(id);
     return {
       title: `${product.name} — Family Store`,
       description: product.description || `${product.name} available in the family store.`,
@@ -26,7 +31,7 @@ export default async function ProductDetailPage({ params }: Props) {
   let product: ProductDto | null = null;
 
   try {
-    product = await serverFetch<ProductDto>(`/api/store/products/${id}`);
+    product = await getProduct(id);
   } catch {
     notFound();
   }

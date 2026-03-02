@@ -1,5 +1,14 @@
 package com.scottfamily.scottfamily.service;
 
+import java.net.URI;
+import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.Base64;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -7,11 +16,20 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * Shared SMS sending via Twilio REST API (no SDK dependency).
- * Used by both bulk notification sending and two-factor authentication.
+ * Uses a single reusable HttpClient with connect/request timeouts to prevent
+ * thread starvation on Azure App Service (limited SNAT ports).
  */
 @Service
 @Slf4j
 public class SmsService {
+
+    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
+    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(15);
+
+    /** Single reusable client — avoids creating a new thread-pool + connection per call. */
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(CONNECT_TIMEOUT)
+            .build();
 
     @Value("${twilio.account-sid:}")
     private String twilioAccountSid;
@@ -44,23 +62,23 @@ public class SmsService {
         try {
             String url = "https://api.twilio.com/2010-04-01/Accounts/"
                     + twilioAccountSid + "/Messages.json";
-            String auth = java.util.Base64.getEncoder()
-                    .encodeToString((twilioAccountSid + ":" + twilioAuthToken).getBytes());
+            String auth = Base64.getEncoder()
+                    .encodeToString((twilioAccountSid + ":" + twilioAuthToken).getBytes(StandardCharsets.UTF_8));
 
-            String formData = "To=" + java.net.URLEncoder.encode(toNumber, "UTF-8")
-                    + "&From=" + java.net.URLEncoder.encode(twilioFromNumber, "UTF-8")
-                    + "&Body=" + java.net.URLEncoder.encode(messageBody, "UTF-8");
+            String formData = "To=" + URLEncoder.encode(toNumber, StandardCharsets.UTF_8)
+                    + "&From=" + URLEncoder.encode(twilioFromNumber, StandardCharsets.UTF_8)
+                    + "&Body=" + URLEncoder.encode(messageBody, StandardCharsets.UTF_8);
 
-            java.net.http.HttpClient client = java.net.http.HttpClient.newHttpClient();
-            java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
-                    .uri(java.net.URI.create(url))
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
                     .header("Authorization", "Basic " + auth)
                     .header("Content-Type", "application/x-www-form-urlencoded")
-                    .POST(java.net.http.HttpRequest.BodyPublishers.ofString(formData))
+                    .timeout(REQUEST_TIMEOUT)
+                    .POST(HttpRequest.BodyPublishers.ofString(formData))
                     .build();
 
-            java.net.http.HttpResponse<String> response =
-                    client.send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response =
+                    httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
             if (response.statusCode() >= 400) {
                 throw new RuntimeException("Twilio SMS failed (HTTP "

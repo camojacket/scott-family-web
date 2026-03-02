@@ -40,6 +40,7 @@ export async function POST(req: NextRequest) {
       process.env.NEXT_PUBLIC_API_BASE?.replace(/\/+$/, '') || '';
     const sessionCheck = await fetch(`${backendBase}/api/auth/session-info`, {
       headers: { Cookie: `JSESSIONID=${sessionCookie.value}` },
+      signal: AbortSignal.timeout(10_000),
     });
     if (!sessionCheck.ok) {
       return NextResponse.json(

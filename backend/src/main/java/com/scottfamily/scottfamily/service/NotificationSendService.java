@@ -2,22 +2,25 @@ package com.scottfamily.scottfamily.service;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.jooq.DSLContext;
 import org.jooq.Field;
 import org.jooq.impl.DSL;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
  * Handles sending bulk email and SMS notifications to opted-in subscribers.
- * Email is sent via the existing MailService (Spring Mail / Gmail SMTP).
- * SMS is sent via Twilio (optional — gracefully degrades if not configured).
+ *
+ * Email delivery is non-blocking because MailService methods are @Async.
+ * SMS delivery is parallelized via CompletableFuture on the async executor.
  */
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class NotificationSendService {
 
@@ -25,6 +28,19 @@ public class NotificationSendService {
     private final NotificationPreferencesService preferencesService;
     private final DSLContext dsl;
     private final SmsService smsService;
+    private final Executor asyncExecutor;
+
+    public NotificationSendService(MailService mailService,
+                                   NotificationPreferencesService preferencesService,
+                                   DSLContext dsl,
+                                   SmsService smsService,
+                                   @Qualifier("asyncExecutor") Executor asyncExecutor) {
+        this.mailService = mailService;
+        this.preferencesService = preferencesService;
+        this.dsl = dsl;
+        this.smsService = smsService;
+        this.asyncExecutor = asyncExecutor;
+    }
 
     // ── Notification log table refs ────────────────────────────────────
     private static final org.jooq.Table<?> NOTIF_LOG =
@@ -65,7 +81,8 @@ public class NotificationSendService {
 
     /**
      * Sends notifications to all opted-in subscribers.
-     * Called by admin from the notifications tab.
+     * Email sends are non-blocking (@Async in MailService).
+     * SMS sends are parallelized on the async executor.
      */
     public SendNotificationResponse sendBulkNotification(Long adminUserId, SendNotificationRequest req) {
         if (req.subject() == null || req.subject().isBlank()) {
@@ -81,7 +98,7 @@ public class NotificationSendService {
         int emailsSent = 0;
         int smsSent = 0;
 
-        // ── Email ──────────────────────────────────────────────────────
+        // ── Email (each .sendEmail() dispatches to async thread pool) ──
         if (req.sendEmail()) {
             List<String> emails = preferencesService.getEmailSubscribers();
             for (String email : emails) {
@@ -89,25 +106,36 @@ public class NotificationSendService {
                     mailService.sendEmail(email, req.subject(), req.body());
                     emailsSent++;
                 } catch (Exception e) {
-                    log.warn("Failed to send email to {}: {}", email, e.getMessage());
+                    log.warn("Failed to dispatch email to {}: {}", email, e.getMessage());
                 }
             }
-            // Log email batch
             logNotification(adminUserId, req.subject(), req.body(), "EMAIL", emailsSent);
         }
 
-        // ── SMS ────────────────────────────────────────────────────────
+        // ── SMS (parallelized on async executor) ──
         if (req.sendSms()) {
             if (smsService.isConfigured()) {
                 List<String> phones = preferencesService.getSmsSubscribers();
-                for (String phone : phones) {
-                    try {
-                        smsService.send(phone, req.body());
-                        smsSent++;
-                    } catch (Exception e) {
-                        log.warn("Failed to send SMS to {}: {}", phone, e.getMessage());
-                    }
+                AtomicInteger smsCount = new AtomicInteger(0);
+
+                CompletableFuture<?>[] futures = phones.stream()
+                        .map(phone -> CompletableFuture.runAsync(() -> {
+                            try {
+                                smsService.send(phone, req.body());
+                                smsCount.incrementAndGet();
+                            } catch (Exception e) {
+                                log.warn("Failed to send SMS to {}: {}", phone, e.getMessage());
+                            }
+                        }, asyncExecutor))
+                        .toArray(CompletableFuture[]::new);
+
+                // Wait for all SMS futures (bounded by executor queue capacity)
+                try {
+                    CompletableFuture.allOf(futures).join();
+                } catch (Exception e) {
+                    log.warn("Some SMS sends did not complete: {}", e.getMessage());
                 }
+                smsSent = smsCount.get();
                 logNotification(adminUserId, req.subject(), req.body(), "SMS", smsSent);
             } else {
                 log.warn("Twilio is not configured — SMS notifications skipped");

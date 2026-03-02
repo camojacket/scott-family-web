@@ -1,5 +1,13 @@
 import type { AssetUploadResponse, AssetKind } from './types';
 
+/** Default timeout for client-side API calls (milliseconds). */
+const DEFAULT_TIMEOUT_MS = 30_000;
+
+/** Create an AbortSignal that fires after `ms` milliseconds. */
+function timeoutSignal(ms: number): AbortSignal {
+  return AbortSignal.timeout(ms);
+}
+
 export const API_BASE =
   (process.env.NEXT_PUBLIC_API_BASE &&
     process.env.NEXT_PUBLIC_API_BASE.replace(/\/+$/, '')) ||
@@ -62,6 +70,7 @@ export async function apiFetch<T = unknown>(
     credentials: 'include',
     ...init,
     headers,
+    signal: init.signal ?? timeoutSignal(DEFAULT_TIMEOUT_MS),
     body:
       init.body === undefined || init.body instanceof FormData
         ? (init.body as BodyInit | undefined)
@@ -81,6 +90,7 @@ export async function apiFetch<T = unknown>(
           try {
             const probe = await fetch(`${API_BASE}/api/auth/session-info`, {
               credentials: 'include',
+              signal: timeoutSignal(5_000),
             });
             if (probe.ok) {
               // Session is valid — this is a genuine "forbidden" error, not a dead session

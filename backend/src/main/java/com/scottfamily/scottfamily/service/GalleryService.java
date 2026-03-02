@@ -152,19 +152,22 @@ public class GalleryService {
     /**
      * List gallery images, ordered by imageDate desc (nulls last), then uploadedAt desc.
      * Includes tags for each image. Supports pagination via offset/limit.
+     * Tags are fetched only for the paginated image IDs (not all images).
      */
     public List<GalleryImageDto> listAll(int offset, int limit) {
-        Map<Long, List<ImageTagDto>> allTags = getAllTags();
-
-        return dsl.selectFrom(GALLERY_IMAGES)
+        var images = dsl.selectFrom(GALLERY_IMAGES)
                 .orderBy(
                         DSL.field("IMAGE_DATE").desc().nullsLast(),
                         DSL.field("UPLOADED_AT").desc()
                 )
                 .offset(offset)
                 .limit(limit)
-                .fetch()
-                .map(r -> {
+                .fetch();
+
+        List<Long> imageIds = images.stream().map(r -> r.get(F_ID)).toList();
+        Map<Long, List<ImageTagDto>> tagMap = getTagsForImages(imageIds);
+
+        return images.map(r -> {
                     Long id = r.get(F_ID);
                     return GalleryImageDto.builder()
                         .id(id)
@@ -178,7 +181,7 @@ public class GalleryService {
                         .uploadedBy(r.get(F_UPLOADED_BY))
                         .uploadedAt(r.get(F_UPLOADED_AT))
                         .youtubeUrl(r.get(F_YOUTUBE_URL))
-                        .tags(allTags.getOrDefault(id, new ArrayList<>()))
+                        .tags(tagMap.getOrDefault(id, new ArrayList<>()))
                         .build();
                 });
     }
@@ -200,7 +203,7 @@ public class GalleryService {
 
         if (imageIds.isEmpty()) return List.of();
 
-        Map<Long, List<ImageTagDto>> tagMap = getAllTags();
+        Map<Long, List<ImageTagDto>> tagMap = getTagsForImages(imageIds);
 
         return dsl.selectFrom(GALLERY_IMAGES)
                 .where(F_ID.in(imageIds))
@@ -379,7 +382,38 @@ public class GalleryService {
     }
 
     /**
+     * Return tags only for the specified image IDs (scoped query — avoids loading all tags).
+     */
+    public Map<Long, List<ImageTagDto>> getTagsForImages(List<Long> imageIds) {
+        if (imageIds == null || imageIds.isEmpty()) return Map.of();
+
+        var rows = dsl.select(TAG_IMAGE_ID, TAG_PERSON_ID, P_FIRST_NAME, P_LAST_NAME,
+                        P_PREFIX, P_MIDDLE, P_SUFFIX_F, P_DOB, P_DOD)
+                .from(GALLERY_IMAGE_TAGS)
+                .join(PEOPLE_TABLE).on(P_ID.eq(TAG_PERSON_ID))
+                .where(TAG_IMAGE_ID.in(imageIds))
+                .orderBy(P_FIRST_NAME.asc(), P_LAST_NAME.asc())
+                .fetch();
+
+        Map<Long, List<ImageTagDto>> map = new HashMap<>();
+        for (var r : rows) {
+            Long imgId = r.get(TAG_IMAGE_ID);
+            map.computeIfAbsent(imgId, k -> new ArrayList<>())
+                .add(ImageTagDto.builder()
+                    .personId(r.get(TAG_PERSON_ID))
+                    .displayName(PeopleService.fullDisplayName(
+                        r.get(P_PREFIX), r.get(P_FIRST_NAME), r.get(P_MIDDLE),
+                        r.get(P_LAST_NAME), r.get(P_SUFFIX_F),
+                        r.get(P_DOB), r.get(P_DOD)))
+                    .build()
+                );
+        }
+        return map;
+    }
+
+    /**
      * Replace all tags for an image with the given person IDs.
+     * Uses batch insert instead of one-by-one.
      */
     @Transactional
     public List<ImageTagDto> setTags(Long imageId, List<Long> personIds) {
@@ -388,14 +422,17 @@ public class GalleryService {
                 .where(TAG_IMAGE_ID.eq(imageId))
                 .execute();
 
-        // Insert new tags
-        if (personIds != null) {
+        // Batch insert new tags
+        if (personIds != null && !personIds.isEmpty()) {
+            var batch = dsl.batch(
+                    dsl.insertInto(GALLERY_IMAGE_TAGS)
+                            .set(TAG_IMAGE_ID, (Long) null)
+                            .set(TAG_PERSON_ID, (Long) null)
+            );
             for (Long pid : personIds) {
-                dsl.insertInto(GALLERY_IMAGE_TAGS)
-                        .set(TAG_IMAGE_ID, imageId)
-                        .set(TAG_PERSON_ID, pid)
-                        .execute();
+                batch.bind(imageId, pid);
             }
+            batch.execute();
         }
 
         return getTagsForImage(imageId);

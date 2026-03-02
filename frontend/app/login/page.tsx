@@ -367,6 +367,12 @@ export default function LoginPage() {
         Don&apos;t have an account?{' '}
         <a href="/signup" style={{ color: 'var(--color-primary-500)', fontWeight: 600 }}>Sign up</a>
       </Typography>
+
+      <Typography variant="body2" sx={{ textAlign: 'center', mt: 2, color: 'var(--text-secondary)' }}>
+        Want to support the reunion?{' '}
+        <a href="/donate" style={{ color: 'var(--color-primary-500)', fontWeight: 600 }}>Make a donation</a>
+        {' '}&mdash; no account needed
+      </Typography>
     </Box>
   );
 }

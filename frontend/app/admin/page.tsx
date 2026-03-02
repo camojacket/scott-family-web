@@ -519,6 +519,9 @@ export default function AdminPage() {
           <Button href="/admin/dues" variant="outlined" size="small">
             Dues Tracking &rarr;
           </Button>
+          <Button href="/admin/donations" variant="outlined" size="small">
+            Donations &rarr;
+          </Button>
           <Button href="/admin/store" variant="outlined" size="small">
             Store Management &rarr;
           </Button>

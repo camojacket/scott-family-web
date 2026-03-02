@@ -3,6 +3,11 @@ server:
     enabled: true
     mime-types: application/json,text/html,text/css,application/javascript
     min-response-size: 1024
+  tomcat:
+    threads:
+      max: 50            # B2 has 2 vCPU — keep modest; default 200 wastes memory
+      min-spare: 10
+    connection-timeout: 10000   # 10s — fail fast on slow clients
   servlet:
     session:
       timeout: ${SESSION_TIMEOUT:20m}   # configurable via env; default 20 minutes of inactivity
@@ -23,10 +28,11 @@ spring:
     password: ${SPRING_DATASOURCE_PASSWORD}
     hikari:
       initialization-fail-timeout: -1
-      maximum-pool-size: 10
-      minimum-idle: 2
+      maximum-pool-size: 20      # was 10 — B2 with 50 Tomcat threads needs headroom
+      minimum-idle: 4            # was 2 — keep a few warm connections ready
       idle-timeout: 300000
-      connection-timeout: 60000
+      connection-timeout: 10000  # was 60000 — fail fast instead of holding request thread for 60s
+      max-lifetime: 1800000      # 30 min — recycle before Azure SQL idle-kill
   jpa:
     properties:
       hibernate:

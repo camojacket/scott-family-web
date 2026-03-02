@@ -11,6 +11,8 @@ import org.jooq.Table;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import com.azure.storage.blob.BlobContainerClient;
 
@@ -31,11 +33,15 @@ public class NewsletterService {
     private final DSLContext dsl;
     private final CdnUploadService cdnUploadService;
     private final BlobContainerClient blobContainer;
+    private final TransactionTemplate txTemplate;
 
-    public NewsletterService(DSLContext dsl, CdnUploadService cdnUploadService, BlobContainerClient blobContainer) {
+    public NewsletterService(DSLContext dsl, CdnUploadService cdnUploadService,
+                             BlobContainerClient blobContainer,
+                             PlatformTransactionManager txManager) {
         this.dsl = dsl;
         this.cdnUploadService = cdnUploadService;
         this.blobContainer = blobContainer;
+        this.txTemplate = new TransactionTemplate(txManager);
     }
 
     // ── DTOs ──
@@ -93,41 +99,47 @@ public class NewsletterService {
                 .fetchOne(this::toDto);
     }
 
-    /** Re-upload: update the PDF URL and blob key, delete old blob */
-    @Transactional
+    /** Re-upload: update the PDF URL and blob key, delete old blob AFTER tx commits */
     public NewsletterDto reupload(Long id, String newPdfUrl, String newBlobKey) {
-        // fetch old blob key to delete from storage
-        String oldBlobKey = dsl.select(F_BLOB_KEY).from(NEWSLETTERS)
-                .where(F_ID.eq(id)).fetchOneInto(String.class);
+        // Run DB changes in a transaction, capture old blob key
+        String[] oldKey = new String[1];
+        NewsletterDto result = txTemplate.execute(status -> {
+            oldKey[0] = dsl.select(F_BLOB_KEY).from(NEWSLETTERS)
+                    .where(F_ID.eq(id)).fetchOneInto(String.class);
 
-        dsl.update(NEWSLETTERS)
-                .set(F_PDF_URL, newPdfUrl)
-                .set(F_BLOB_KEY, newBlobKey)
-                .set(F_UPDATED_AT, LocalDateTime.now())
-                .where(F_ID.eq(id))
-                .execute();
+            dsl.update(NEWSLETTERS)
+                    .set(F_PDF_URL, newPdfUrl)
+                    .set(F_BLOB_KEY, newBlobKey)
+                    .set(F_UPDATED_AT, LocalDateTime.now())
+                    .where(F_ID.eq(id))
+                    .execute();
 
-        // delete old blob asynchronously (best effort)
-        if (oldBlobKey != null && !oldBlobKey.isBlank()) {
-            try { blobContainer.getBlobClient(oldBlobKey).deleteIfExists(); } catch (Exception ignored) {}
+            return dsl.select(F_ID, F_NAME, F_PDF_URL, F_ISSUE_DATE, F_CREATED_AT, F_UPDATED_AT)
+                    .from(NEWSLETTERS)
+                    .where(F_ID.eq(id))
+                    .fetchOne(this::toDto);
+        });
+
+        // Blob delete OUTSIDE the transaction — DB connection already returned to pool
+        if (oldKey[0] != null && !oldKey[0].isBlank()) {
+            try { blobContainer.getBlobClient(oldKey[0]).deleteIfExists(); } catch (Exception ignored) {}
         }
 
-        return dsl.select(F_ID, F_NAME, F_PDF_URL, F_ISSUE_DATE, F_CREATED_AT, F_UPDATED_AT)
-                .from(NEWSLETTERS)
-                .where(F_ID.eq(id))
-                .fetchOne(this::toDto);
+        return result;
     }
 
-    /** Delete newsletter and its blob */
-    @Transactional
+    /** Delete newsletter and its blob — blob delete happens AFTER tx commits */
     public void delete(Long id) {
-        String blobKey = dsl.select(F_BLOB_KEY).from(NEWSLETTERS)
-                .where(F_ID.eq(id)).fetchOneInto(String.class);
+        String[] blobKey = new String[1];
+        txTemplate.executeWithoutResult(status -> {
+            blobKey[0] = dsl.select(F_BLOB_KEY).from(NEWSLETTERS)
+                    .where(F_ID.eq(id)).fetchOneInto(String.class);
+            dsl.deleteFrom(NEWSLETTERS).where(F_ID.eq(id)).execute();
+        });
 
-        dsl.deleteFrom(NEWSLETTERS).where(F_ID.eq(id)).execute();
-
-        if (blobKey != null && !blobKey.isBlank()) {
-            try { blobContainer.getBlobClient(blobKey).deleteIfExists(); } catch (Exception ignored) {}
+        // Blob delete OUTSIDE the transaction
+        if (blobKey[0] != null && !blobKey[0].isBlank()) {
+            try { blobContainer.getBlobClient(blobKey[0]).deleteIfExists(); } catch (Exception ignored) {}
         }
     }
 

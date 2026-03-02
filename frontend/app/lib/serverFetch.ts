@@ -11,6 +11,9 @@
 
 import { cookies, headers } from 'next/headers';
 
+/** Default timeout for backend calls (milliseconds). */
+const DEFAULT_TIMEOUT_MS = 15_000;
+
 const API_ORIGIN =
   (process.env.NEXT_PUBLIC_API_BASE &&
     process.env.NEXT_PUBLIC_API_BASE.replace(/\/+$/, '')) ||
@@ -54,23 +57,32 @@ export async function serverFetch<T = unknown>(
     .map((c) => `${c.name}=${c.value}`)
     .join('; ');
 
-  const resp = await fetch(url, {
-    ...init,
-    headers: {
-      ...Object.fromEntries(new Headers(init.headers || {}).entries()),
-      Cookie: cookieHeader,
-    },
-    // Don't cache authenticated data by default
-    cache: init.cache ?? 'no-store',
-  });
+  // Enforce a timeout so a slow backend can never hang the SSR indefinitely.
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
 
-  if (!resp.ok) {
-    throw new Error(`serverFetch ${path}: HTTP ${resp.status} ${resp.statusText}`);
+  try {
+    const resp = await fetch(url, {
+      ...init,
+      signal: init.signal ?? controller.signal,
+      headers: {
+        ...Object.fromEntries(new Headers(init.headers || {}).entries()),
+        Cookie: cookieHeader,
+      },
+      // Don't cache authenticated data by default
+      cache: init.cache ?? 'no-store',
+    });
+
+    if (!resp.ok) {
+      throw new Error(`serverFetch ${path}: HTTP ${resp.status} ${resp.statusText}`);
+    }
+
+    const ct = resp.headers.get('Content-Type') || '';
+    if (!ct.includes('application/json')) return (await resp.text()) as T;
+    return (await resp.json()) as T;
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  const ct = resp.headers.get('Content-Type') || '';
-  if (!ct.includes('application/json')) return (await resp.text()) as T;
-  return (await resp.json()) as T;
 }
 
 /**

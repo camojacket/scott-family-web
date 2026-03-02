@@ -235,6 +235,33 @@ export interface DuePeriodResponse {
 
 // ─── Store ──────────────────────────────────────────────────
 
+// ─── Donations ──────────────────────────────────────────────
+
+export interface DonationDto {
+  id: number;
+  userId?: number;
+  displayName: string;
+  guestName?: string;
+  guestEmail?: string;
+  amountCents: number;
+  note?: string;
+  status: 'PENDING' | 'COMPLETED' | 'FAILED' | 'REFUNDED';
+  squarePaymentId?: string;
+  squareReceiptUrl?: string;
+  reunionYear?: number;
+  paidAt?: string;
+  createdAt?: string;
+}
+
+export interface DonationSummaryDto {
+  totalDonations: number;
+  totalAmountCents: number;
+  pendingCount: number;
+  completedCount: number;
+}
+
+// ─── Store ──────────────────────────────────────────────────
+
 export interface ProductVariantDto {
   id: number;
   productId: number;

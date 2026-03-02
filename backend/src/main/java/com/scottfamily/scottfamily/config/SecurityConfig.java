@@ -61,9 +61,10 @@ public class SecurityConfig {
                     csrf
                         .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
                         .csrfTokenRequestHandler(delegate)
-                        // Exempt webhook endpoints (authenticated via HMAC, not session)
-                        // and auth endpoints (public, no session yet so no CSRF cookie)
-                        .ignoringRequestMatchers("/api/webhooks/**", "/api/auth/**");
+                        // Exempt webhook endpoints (authenticated via HMAC, not session),
+                        // auth endpoints (public, no session yet so no CSRF cookie),
+                        // and guest donation endpoint (unauthenticated, no session).
+                        .ignoringRequestMatchers("/api/webhooks/**", "/api/auth/**", "/api/donations/guest");
                 })
 
                 // Your auth rules — keep these aligned with “site behind login except auth/public”
@@ -78,6 +79,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/people/unclaimed-archived").permitAll() // needed during signup for archived profile claim
                         .requestMatchers(HttpMethod.GET, "/api/profile/{personId}").permitAll()   // needed during signup auto-populate
                         .requestMatchers(HttpMethod.POST, "/api/webhooks/square").permitAll()     // Square webhook (signature-verified internally)
+                        .requestMatchers(HttpMethod.POST, "/api/donations/guest").permitAll()     // Guest donations (no account required)
+                        .requestMatchers(HttpMethod.GET, "/api/donations/{id}").permitAll()       // Donation status polling (guest checkout return)
                         .requestMatchers(HttpMethod.GET, "/api/page-content/**").permitAll()      // public page content
                         // everything else requires login
                         .anyRequest().authenticated()

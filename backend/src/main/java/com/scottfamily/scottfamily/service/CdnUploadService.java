@@ -95,8 +95,9 @@ public class CdnUploadService {
                         ? "public, max-age=31536000, immutable"
                         : props.getCacheControl());
 
-        // Buffer to memory to avoid mark/reset issues on multipart streams.
-        final BinaryData data = BinaryData.fromBytes(file.getBytes());
+        // Stream directly to blob storage — avoids buffering up to 20MB in heap.
+        final long fileSize = file.getSize();
+        final BinaryData data = BinaryData.fromStream(file.getInputStream(), fileSize);
         blob.upload(data, true);
         blob.setHttpHeaders(headers);
 

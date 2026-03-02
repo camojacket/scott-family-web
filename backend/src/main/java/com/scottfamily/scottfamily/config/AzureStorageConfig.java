@@ -5,12 +5,16 @@ import com.azure.storage.blob.BlobServiceClient;
 import com.azure.storage.blob.BlobServiceClientBuilder;
 import com.azure.storage.blob.models.BlobCorsRule;
 import com.azure.storage.blob.models.BlobServiceProperties;
+import com.azure.core.http.policy.HttpLogOptions;
+import com.azure.storage.common.policy.RequestRetryOptions;
+import com.azure.storage.common.policy.RetryPolicyType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -23,8 +27,20 @@ public class AzureStorageConfig {
     public BlobServiceClient blobServiceClient(
             @Value("${azure.storage.connection-string}") String connectionString,
             @Value("${app.cors.origin:http://localhost:3000}") String allowedOrigin) {
+
+        // Retry options: 3 retries, 4s backoff, 30s per-try timeout, 120s total timeout
+        RequestRetryOptions retryOptions = new RequestRetryOptions(
+                RetryPolicyType.EXPONENTIAL,
+                3,            // maxRetries
+                30,           // tryTimeoutInSeconds
+                4L * 1000,    // retryDelayInMs
+                32L * 1000,   // maxRetryDelayInMs
+                null          // secondaryHost
+        );
+
         BlobServiceClient client = new BlobServiceClientBuilder()
                 .connectionString(connectionString)
+                .retryOptions(retryOptions)
                 .buildClient();
 
         ensureBlobCors(client, allowedOrigin);
